@@ -10,6 +10,12 @@
 enum retro_video_codec {
 	RETRO_VIDEO_H263 = 1,        /* ITU-T H.263 baseline */
 	RETRO_VIDEO_MPEG4_PART2 = 2, /* MPEG-4 Visual Part 2, Simple Profile */
+	RETRO_VIDEO_CINEPAK = 3,     /* RGB vector quantization, CD-ROM video */
+	RETRO_VIDEO_SVQ1 = 4,        /* Sorenson Video 1, YUV410P */
+	RETRO_VIDEO_MSVIDEO1 = 5,    /* Microsoft Video 1, RGB555LE */
+	RETRO_VIDEO_FLV1 = 6,        /* Sorenson Spark / Flash H.263 variant */
+	RETRO_VIDEO_MPEG1 = 7,       /* MPEG-1 video */
+	RETRO_VIDEO_MJPEG = 8,       /* Intra-frame JPEG, 4:2:2 */
 };
 
 struct retro_video;
@@ -23,6 +29,12 @@ struct retro_video_options {
 	int gop_size; /* keyframe distance in frames */
 };
 
+/* Distinct, illustrative starting profiles. Codec-specific historical defaults
+ * vary by capture device; they are not claims about every old video file.
+ * All currently map to 4:3 display, including non-square-pixel QCIF/PAL.
+ */
+struct retro_video_options retro_video_default_options(enum retro_video_codec codec);
+const char *retro_video_codec_name(enum retro_video_codec codec);
 bool retro_video_supported_size(enum retro_video_codec codec, int width, int height);
 struct retro_video *retro_video_create(const struct retro_video_options *options);
 void retro_video_destroy(struct retro_video *video);

@@ -6,6 +6,7 @@
 #include <libswscale/swscale.h>
 
 #include <stdlib.h>
+#include <string.h>
 
 struct retro_video {
 	AVCodecContext *encoder;
@@ -15,11 +16,64 @@ struct retro_video {
 	AVPacket *packet;
 	struct SwsContext *rgba_to_yuv;
 	struct SwsContext *yuv_to_rgba;
+	enum AVPixelFormat encode_pixel_format;
 	int64_t pts;
 	uint64_t bytes;
 	uint64_t packets;
 	uint64_t keyframes;
 };
+
+struct retro_video_preset {
+	enum retro_video_codec kind;
+	const char *name;
+	enum AVCodecID avcodec;
+	enum AVPixelFormat input_format;
+	int width, height, fps, bitrate, gop;
+};
+
+/* Capture targets are examples chosen by video era; not archival device claims.
+ * Cinepak and MS Video 1 are RGB; SVQ1 uses YUV410P; MJPEG uses full-range
+ * JPEG YUV422P. Do not flatten these to a shared YUV420P pipeline. */
+static const struct retro_video_preset presets[] = {
+	{RETRO_VIDEO_H263, "H.263 baseline", AV_CODEC_ID_H263, AV_PIX_FMT_YUV420P, 176, 144, 10, 64000, 30},
+	{RETRO_VIDEO_MPEG4_PART2, "MPEG-4 Visual Simple Profile", AV_CODEC_ID_MPEG4, AV_PIX_FMT_YUV420P, 176, 144, 10,
+	 64000, 30},
+	{RETRO_VIDEO_CINEPAK, "Cinepak", AV_CODEC_ID_CINEPAK, AV_PIX_FMT_RGB24, 320, 240, 15, 300000, 15},
+	{RETRO_VIDEO_SVQ1, "Sorenson Video 1 (SVQ1)", AV_CODEC_ID_SVQ1, AV_PIX_FMT_YUV410P, 320, 240, 15, 250000, 15},
+	{RETRO_VIDEO_MSVIDEO1, "Microsoft Video 1", AV_CODEC_ID_MSVIDEO1, AV_PIX_FMT_RGB555LE, 160, 120, 15, 180000,
+	 15},
+	{RETRO_VIDEO_FLV1, "Sorenson Spark (FLV1)", AV_CODEC_ID_FLV1, AV_PIX_FMT_YUV420P, 320, 240, 15, 200000, 15},
+	{RETRO_VIDEO_MPEG1, "MPEG-1 PAL CD video", AV_CODEC_ID_MPEG1VIDEO, AV_PIX_FMT_YUV420P, 352, 288, 25, 1150000,
+	 15},
+	{RETRO_VIDEO_MJPEG, "Motion JPEG 4:2:2", AV_CODEC_ID_MJPEG, AV_PIX_FMT_YUVJ422P, 320, 240, 15, 1500000, 15},
+};
+
+static const struct retro_video_preset *find_preset(enum retro_video_codec codec)
+{
+	for (size_t i = 0; i < sizeof(presets) / sizeof(presets[0]); ++i)
+		if (presets[i].kind == codec)
+			return &presets[i];
+	return NULL;
+}
+
+struct retro_video_options retro_video_default_options(enum retro_video_codec codec)
+{
+	const struct retro_video_preset *preset = find_preset(codec);
+	if (!preset)
+		return (struct retro_video_options){0};
+	return (struct retro_video_options){.codec = codec,
+					    .width = preset->width,
+					    .height = preset->height,
+					    .fps = preset->fps,
+					    .bitrate = preset->bitrate,
+					    .gop_size = preset->gop};
+}
+
+const char *retro_video_codec_name(enum retro_video_codec codec)
+{
+	const struct retro_video_preset *preset = find_preset(codec);
+	return preset ? preset->name : NULL;
+}
 
 bool retro_video_supported_size(enum retro_video_codec codec, int width, int height)
 {
@@ -30,6 +84,9 @@ bool retro_video_supported_size(enum retro_video_codec codec, int width, int hei
 	if (codec == RETRO_VIDEO_MPEG4_PART2)
 		return width >= 16 && height >= 16 && width <= 2048 && height <= 2048 && width % 16 == 0 &&
 		       height % 16 == 0;
+	if (find_preset(codec))
+		return width >= 16 && height >= 16 && width <= 2048 && height <= 2048 && width % 4 == 0 &&
+		       height % 4 == 0;
 	return false;
 }
 
@@ -54,9 +111,19 @@ struct retro_video *retro_video_create(const struct retro_video_options *options
 	    options->gop_size < 1 || options->gop_size > 1000)
 		return NULL;
 
-	const enum AVCodecID id = options->codec == RETRO_VIDEO_H263 ? AV_CODEC_ID_H263 : AV_CODEC_ID_MPEG4;
-	const AVCodec *encoder = avcodec_find_encoder(id);
-	const AVCodec *decoder = avcodec_find_decoder(id);
+	const struct retro_video_preset *preset = find_preset(options->codec);
+	if (!preset)
+		return NULL;
+	const AVCodec *encoder = avcodec_find_encoder(preset->avcodec);
+	const AVCodec *decoder = avcodec_find_decoder(preset->avcodec);
+	if (encoder && encoder->pix_fmts) {
+		bool format_supported = false;
+		for (const enum AVPixelFormat *fmt = encoder->pix_fmts; *fmt != AV_PIX_FMT_NONE; ++fmt)
+			if (*fmt == preset->input_format)
+				format_supported = true;
+		if (!format_supported)
+			return NULL;
+	}
 	if (!encoder || !decoder)
 		return NULL;
 
@@ -74,12 +141,19 @@ struct retro_video *retro_video_create(const struct retro_video_options *options
 
 	ctx->encoder->width = options->width;
 	ctx->encoder->height = options->height;
-	ctx->encoder->pix_fmt = AV_PIX_FMT_YUV420P;
+	ctx->encoder->pix_fmt = preset->input_format;
+	ctx->encode_pixel_format = preset->input_format;
 	ctx->encoder->time_base = (AVRational){1, options->fps};
 	ctx->encoder->framerate = (AVRational){options->fps, 1};
 	ctx->encoder->bit_rate = options->bitrate;
 	ctx->encoder->gop_size = options->gop_size;
 	ctx->encoder->max_b_frames = 0;
+	/* MJPEG has full-range image chroma; RGB-family codecs do not use YUV
+	 * conversion at all. This is actual encoder input, not a lookalike pass. */
+	if (options->codec == RETRO_VIDEO_MJPEG)
+		ctx->encoder->color_range = AVCOL_RANGE_JPEG;
+	if (options->codec == RETRO_VIDEO_MPEG1)
+		ctx->encoder->sample_aspect_ratio = (AVRational){12, 11};
 	if (options->codec == RETRO_VIDEO_MPEG4_PART2) {
 		ctx->encoder->profile = FF_PROFILE_MPEG4_SIMPLE;
 		/* An explicit QCIF 4:3 sample aspect (12:11) in MPEG-4 VOL.
@@ -88,20 +162,23 @@ struct retro_video *retro_video_create(const struct retro_video_options *options
 			options->width == 176 && options->height == 144 ? (AVRational){12, 11} : (AVRational){1, 1};
 	}
 
+	/* AVI-era codecs such as Cinepak can require frame dimensions from the
+	 * container header; our in-memory round-trip has no container. */
+	ctx->decoder->width = options->width;
+	ctx->decoder->height = options->height;
 	if (avcodec_open2(ctx->encoder, encoder, NULL) < 0 || avcodec_open2(ctx->decoder, decoder, NULL) < 0)
 		goto error;
 
 	ctx->input->width = options->width;
 	ctx->input->height = options->height;
-	ctx->input->format = AV_PIX_FMT_YUV420P;
+	ctx->input->format = preset->input_format;
+	ctx->input->color_range = ctx->encoder->color_range;
 	if (av_frame_get_buffer(ctx->input, 32) < 0)
 		goto error;
 
 	ctx->rgba_to_yuv = sws_getContext(options->width, options->height, AV_PIX_FMT_RGBA, options->width,
-					  options->height, AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
-	ctx->yuv_to_rgba = sws_getContext(options->width, options->height, AV_PIX_FMT_YUV420P, options->width,
-					  options->height, AV_PIX_FMT_RGBA, SWS_BILINEAR, NULL, NULL, NULL);
-	if (!ctx->rgba_to_yuv || !ctx->yuv_to_rgba)
+					  options->height, preset->input_format, SWS_BILINEAR, NULL, NULL, NULL);
+	if (!ctx->rgba_to_yuv)
 		goto error;
 
 	return ctx;
@@ -145,6 +222,15 @@ int retro_video_process(struct retro_video *ctx, const uint8_t *rgba, int input_
 		av_packet_unref(ctx->packet);
 
 		while ((code = avcodec_receive_frame(ctx->decoder, ctx->decoded)) == 0) {
+			ctx->yuv_to_rgba = sws_getCachedContext(ctx->yuv_to_rgba, ctx->decoded->width,
+								ctx->decoded->height,
+								(enum AVPixelFormat)ctx->decoded->format,
+								ctx->decoded->width, ctx->decoded->height,
+								AV_PIX_FMT_RGBA, SWS_BILINEAR, NULL, NULL, NULL);
+			if (!ctx->yuv_to_rgba) {
+				av_frame_unref(ctx->decoded);
+				return -1;
+			}
 			uint8_t *target[4] = {decoded, NULL, NULL, NULL};
 			int target_stride[4] = {decoded_stride, 0, 0, 0};
 			if (sws_scale(ctx->yuv_to_rgba, (const uint8_t *const *)ctx->decoded->data,

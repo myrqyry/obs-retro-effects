@@ -134,32 +134,45 @@ User adjustable parameters include pixel scale, colors per channel, quality, key
 
 ![retro codec filter preview](.github/assets/images/retro-codec.png)
 
-### Authentic early-phone video codecs (this fork; optional)
+### Authentic video codec gallery (this fork; optional)
 
-This fork adds two genuinely encoded/decoded video modes to Retro Codec,
-alongside the original RPZA mode:
+The **Retro Codec** filter supports eight real FFmpeg encoder/decoder
+pipelines, alongside the original shader-based RPZA. Each real mode
+actually compresses the source and displays its decoded frames.
+These are different algorithms, not random-noise/block-edge shaders.
 
-- **H.263 baseline** — early mobile video with real frame prediction,
-  quantization and decoding.
-- **MPEG-4 Part 2 (Simple Profile)** — a separate MPEG-4 Visual encoder/decoder
-  with different compressed picture syntax and temporal behavior. It is
-  **not** MPEG-4 AVC/H.264, or a shader imitating compression.
+| Video codec | Starter format | Encoder input | Era |
+| --- | --- | --- | --- |
+| H.263 Baseline | 176×144, 10 fps | YUV 4:2:0 | Early 3GP phones |
+| MPEG-4 Visual Part 2 Simple | 176×144, 10 fps | YUV 4:2:0 | Later 3GP phones |
+| Cinepak | 320×240, 15 fps | RGB24 | 1990s CD-ROM and QuickTime |
+| Sorenson Video 1 (SVQ1) | 320×240, 15 fps | YUV 4:1:0 | QuickTime web clips |
+| Microsoft Video 1 | 160×120, 15 fps | RGB555LE (15-bit color) | Video for Windows / AVI |
+| Sorenson Spark / FLV1 | 320×240, 15 fps | YUV 4:2:0 | Early Flash web video |
+| MPEG-1 | 352×288, 25 fps | YUV 4:2:0 | PAL Video CD-era |
+| Motion JPEG | 320×240, 15 fps | Full-range YUV 4:2:2 | Early digital cameras |
 
-Both currently use **QCIF 176 × 144, YUV 4:2:0** at 10 fps, 64 kbit/s
-target bitrate and a 30-frame GOP by default. Frame rate, target bitrate
-and GOP are adjustable. Bitrate is an *encoder target*, not a promise;
-actual coded bytes depend on image complexity and motion.
+These dimensions and bitrates are **illustrative starter profiles**,
+not guaranteed defaults for every historical device. Choosing a codec
+loads its starter profile; you can adjust frame rate, requested bitrate,
+and GOP. **Some older encoders do not honor bitrate targets**; the
+actual bitstream size depends on the algorithm and input images.
+For intraframe codecs, GOP has no meaningful temporal compression effect.
+MPEG-1 uses no B-frames in this low-latency implementation, so
+the PAL resolution/bitrate do **not** imply VCD compliance.
 
-The MPEG-4 Part 2 QCIF encoder signals 12:11 sample aspect ratio for
-a 4:3 display. Both modes crop widescreen input to 4:3 and display decoded
-frames with bars as needed, rather than stretching a widescreen source.
+The plugin centers a 4:3 crop from widescreen input, compresses at the
+codec's capture resolution and displays the decoded result in the original
+OBS canvas with appropriate bars. QCIF MPEG-4 explicitly signals a 12:11
+pixel aspect ratio for 4:3 display. Alpha is not preserved.
 
-**3GP is a container**, not either codec. These modes process frames
-through the chosen actual encoder/decoder; they do not produce a .3gp file,
-simulate transmission errors, or artificially draw blocks and noise.
+**3GP, AVI, MOV, FLV and VCD are containers/packaging, not codecs.**
+These filters process raw video pictures. They do not mux historical
+formats, recreate audio, simulate network errors, or emulate optics,
+camera sensors or particular consumer hardware.
 
-To enable the optional FFmpeg-dependent codecs, install development
-libraries libavcodec, libavutil, and libswscale, then:
+The gallery is **opt-in** and requires FFmpeg development libraries
+libavcodec, libavutil and libswscale. For a local Linux build:
 
 ```bash
 cmake --preset ubuntu-x86_64 -DENABLE_VIDEO_CODECS=ON -DBUILD_TESTING=ON
@@ -167,19 +180,18 @@ cmake --build --preset ubuntu-x86_64 -j4
 ctest --test-dir build_x86_64 --output-on-failure
 ```
 
-The old ENABLE_H263_CODEC=ON option remains a compatible alias.
-Headless OBS tests also require xvfb-run and a C++ compiler. Native
-codec and real OBS GPU-readback tests check encoded frame progression,
-the video settings, and the 4:3 framing for *both* formats without
-touching the installed OBS plugin. The normal build remains independent
-of FFmpeg; these experimental modes are not yet shipped in default
-Windows/macOS packages.
+The old ENABLE_H263_CODEC=ON flag is still a supported alias. Native
+tests encode and decode real bitstreams; Linux OBS tests also require
+xvfb-run and a C++ compiler to test actual plugin loading, changing
+decoded frames, 4:3 framing, settings migration, UI selection and RPZA
+fallback. The default build has no FFmpeg dependency. The new codecs
+are not yet packaged for Windows/macOS.
 
-**Remaining limitations:** GPU readback and encode/decode still run on the
-OBS render path; sustained streaming latency/performance is not established.
-The modes do not preserve alpha and are not yet a recreation of a particular
-handset's optics, sensor/image processing, audio, or 3GP muxing. Device
-reference clips will be necessary to validate handset-level fidelity.
+**Unverified:** continuous streaming performance, latency (especially
+Cinepak CPU cost), how close output looks to specific hardware captures,
+and whether bitrate controls meaningfully influence each encoder.
+GPU readback and encoding currently run synchronously on OBS's render
+thread. Passing tests do not establish reliable long-running use.
 
 ## VHS
 Be kind, please rewind. The VHS filter emulates many artifacts seen when playing VHS tapes including tape wrinkle, frame jitter, pop lines, and head switching noise.  It gives the user many tweakable options:

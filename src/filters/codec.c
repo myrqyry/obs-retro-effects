@@ -72,6 +72,53 @@ float lerp(float x, float y, float a)
 
 #ifdef ENABLE_VIDEO_CODECS
 /* Preserve settings from the earlier H.263-only experimental build. */
+static enum retro_video_codec codec_video_kind(uint32_t type)
+{
+	switch (type) {
+	case CODEC_TYPE_H263:
+		return RETRO_VIDEO_H263;
+	case CODEC_TYPE_MPEG4_PART2:
+		return RETRO_VIDEO_MPEG4_PART2;
+	case CODEC_TYPE_CINEPAK:
+		return RETRO_VIDEO_CINEPAK;
+	case CODEC_TYPE_SVQ1:
+		return RETRO_VIDEO_SVQ1;
+	case CODEC_TYPE_MSVIDEO1:
+		return RETRO_VIDEO_MSVIDEO1;
+	case CODEC_TYPE_FLV1:
+		return RETRO_VIDEO_FLV1;
+	case CODEC_TYPE_MPEG1:
+		return RETRO_VIDEO_MPEG1;
+	case CODEC_TYPE_MJPEG:
+		return RETRO_VIDEO_MJPEG;
+	default:
+		return 0;
+	}
+}
+
+/* First use: preserve explicit settings and older experimental H.263 values.
+ * A user's manual selection of another codec loads its starting profile. */
+static void codec_video_settings(obs_data_t *settings, enum retro_video_codec kind, bool change_codec)
+{
+	if (!kind)
+		return;
+	struct retro_video_options preset = retro_video_default_options(kind);
+	struct {
+		const char *current, *legacy;
+		int value;
+	} names[] = {{"codec_video_fps", "codec_h263_fps", preset.fps},
+		     {"codec_video_bitrate", "codec_h263_bitrate", preset.bitrate},
+		     {"codec_video_gop", "codec_h263_gop", preset.gop_size}};
+	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+		if (!change_codec && obs_data_has_user_value(settings, names[i].current))
+			continue;
+		if (!change_codec && obs_data_has_user_value(settings, names[i].legacy))
+			obs_data_set_int(settings, names[i].current, obs_data_get_int(settings, names[i].legacy));
+		else
+			obs_data_set_int(settings, names[i].current, names[i].value);
+	}
+}
+
 static int codec_video_setting(obs_data_t *settings, const char *current, const char *legacy)
 {
 	if (!obs_data_has_user_value(settings, current) && obs_data_has_user_value(settings, legacy))
@@ -93,6 +140,7 @@ void codec_filter_update(retro_effects_filter_data_t *data, obs_data_t *settings
 	filter->rpza_threshold_solid = (float)obs_data_get_double(settings, "codec_rpza_threshold_solid");
 	filter->rpza_threshold_gradient = (float)obs_data_get_double(settings, "codec_rpza_threshold_gradient");
 #ifdef ENABLE_VIDEO_CODECS
+	codec_video_settings(settings, codec_video_kind(filter->codec_type), false);
 	filter->video_fps = codec_video_setting(settings, "codec_video_fps", "codec_h263_fps");
 	filter->video_bitrate = codec_video_setting(settings, "codec_video_bitrate", "codec_h263_bitrate");
 	filter->video_gop = codec_video_setting(settings, "codec_video_gop", "codec_h263_gop");
@@ -157,6 +205,14 @@ void codec_filter_properties(retro_effects_filter_data_t *data, obs_properties_t
 #ifdef ENABLE_VIDEO_CODECS
 	obs_property_list_add_int(codec_type, obs_module_text(CODEC_TYPE_H263_LABEL), CODEC_TYPE_H263);
 	obs_property_list_add_int(codec_type, obs_module_text(CODEC_TYPE_MPEG4_PART2_LABEL), CODEC_TYPE_MPEG4_PART2);
+	const struct {
+		const char *label;
+		int id;
+	} gallery[] = {{CODEC_TYPE_CINEPAK_LABEL, CODEC_TYPE_CINEPAK},   {CODEC_TYPE_SVQ1_LABEL, CODEC_TYPE_SVQ1},
+		       {CODEC_TYPE_MSVIDEO1_LABEL, CODEC_TYPE_MSVIDEO1}, {CODEC_TYPE_FLV1_LABEL, CODEC_TYPE_FLV1},
+		       {CODEC_TYPE_MPEG1_LABEL, CODEC_TYPE_MPEG1},       {CODEC_TYPE_MJPEG_LABEL, CODEC_TYPE_MJPEG}};
+	for (size_t i = 0; i < sizeof(gallery) / sizeof(gallery[0]); ++i)
+		obs_property_list_add_int(codec_type, obs_module_text(gallery[i].label), gallery[i].id);
 #endif
 	obs_property_set_modified_callback(codec_type, codec_type_modified);
 
@@ -186,16 +242,14 @@ void codec_filter_properties(retro_effects_filter_data_t *data, obs_properties_t
 	obs_properties_add_int_slider(h263_options, "codec_video_fps", obs_module_text("RetroEffects.Codec.Video.Fps"),
 				      5, 25, 1);
 	obs_properties_add_int_slider(h263_options, "codec_video_bitrate",
-				      obs_module_text("RetroEffects.Codec.Video.Bitrate"), 8000, 400000, 1000);
+				      obs_module_text("RetroEffects.Codec.Video.Bitrate"), 8000, 3000000, 1000);
 	obs_properties_add_int_slider(h263_options, "codec_video_gop", obs_module_text("RetroEffects.Codec.Video.Gop"),
 				      1, 300, 1);
 	obs_properties_add_group(props, "codec_video_options", obs_module_text("RetroEffects.Codec.Video.Options"),
 				 OBS_GROUP_NORMAL, h263_options);
 	codec_set_visibility(
-		props,
-		data && data->active_filter_data &&
-			(((codec_filter_data_t *)data->active_filter_data)->codec_type == CODEC_TYPE_H263 ||
-			 ((codec_filter_data_t *)data->active_filter_data)->codec_type == CODEC_TYPE_MPEG4_PART2));
+		props, data && data->active_filter_data &&
+			       codec_video_kind(((codec_filter_data_t *)data->active_filter_data)->codec_type) != 0);
 #endif
 }
 
@@ -292,17 +346,15 @@ void codec_filter_video_render(retro_effects_filter_data_t *data)
 
 	get_input_source(base);
 #ifdef ENABLE_VIDEO_CODECS
-	if ((filter->codec_type == CODEC_TYPE_H263 || filter->codec_type == CODEC_TYPE_MPEG4_PART2) &&
-	    base->input_texture_generated) {
-		const int width = 176, height = 144; /* QCIF; H.263 sample aspect 12:11 */
-		if (!retro_video_obs_matches(
-			    filter->video,
-			    filter->codec_type == CODEC_TYPE_H263 ? RETRO_VIDEO_H263 : RETRO_VIDEO_MPEG4_PART2, width,
-			    height, filter->video_fps, filter->video_bitrate, filter->video_gop)) {
+	enum retro_video_codec kind = codec_video_kind(filter->codec_type);
+	if (kind && base->input_texture_generated) {
+		struct retro_video_options preset = retro_video_default_options(kind);
+		const int width = preset.width, height = preset.height;
+		if (!retro_video_obs_matches(filter->video, kind, width, height, filter->video_fps,
+					     filter->video_bitrate, filter->video_gop)) {
 			retro_video_obs_destroy(filter->video);
-			filter->video = retro_video_obs_create(
-				filter->codec_type == CODEC_TYPE_H263 ? RETRO_VIDEO_H263 : RETRO_VIDEO_MPEG4_PART2,
-				width, height, filter->video_fps, filter->video_bitrate, filter->video_gop);
+			filter->video = retro_video_obs_create(kind, width, height, filter->video_fps,
+							       filter->video_bitrate, filter->video_gop);
 			filter->video_due = true;
 			filter->video_elapsed = 0.0f;
 		}
@@ -438,8 +490,7 @@ void codec_filter_video_tick(retro_effects_filter_data_t *data, float seconds)
 	codec_filter_data_t *filter = data->active_filter_data;
 	filter->time_since_keyframe += seconds;
 #ifdef ENABLE_VIDEO_CODECS
-	if ((filter->codec_type == CODEC_TYPE_H263 || filter->codec_type == CODEC_TYPE_MPEG4_PART2) &&
-	    filter->video_fps > 0) {
+	if (codec_video_kind(filter->codec_type) && filter->video_fps > 0) {
 		filter->video_elapsed += seconds;
 		const float interval = 1.0f / filter->video_fps;
 		if (filter->video_elapsed >= interval) {
@@ -526,8 +577,9 @@ static bool codec_type_modified(obs_properties_t *props, obs_property_t *p, obs_
 {
 	UNUSED_PARAMETER(p);
 #ifdef ENABLE_VIDEO_CODECS
-	codec_set_visibility(props, (obs_data_get_int(settings, "codec_type") == CODEC_TYPE_H263 ||
-				     obs_data_get_int(settings, "codec_type") == CODEC_TYPE_MPEG4_PART2));
+	enum retro_video_codec selected = codec_video_kind((uint32_t)obs_data_get_int(settings, "codec_type"));
+	codec_video_settings(settings, selected, true);
+	codec_set_visibility(props, selected != 0);
 #else
 	UNUSED_PARAMETER(props);
 	UNUSED_PARAMETER(settings);

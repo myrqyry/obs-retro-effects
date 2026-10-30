@@ -10,6 +10,18 @@
 #define CODEC_TYPE_H263_LABEL "RetroEffects.Codec.H263"
 #define CODEC_TYPE_MPEG4_PART2 3
 #define CODEC_TYPE_MPEG4_PART2_LABEL "RetroEffects.Codec.MPEG4Part2"
+#define CODEC_TYPE_CINEPAK 4
+#define CODEC_TYPE_CINEPAK_LABEL "RetroEffects.Codec.Cinepak"
+#define CODEC_TYPE_SVQ1 5
+#define CODEC_TYPE_SVQ1_LABEL "RetroEffects.Codec.SVQ1"
+#define CODEC_TYPE_MSVIDEO1 6
+#define CODEC_TYPE_MSVIDEO1_LABEL "RetroEffects.Codec.MSVideo1"
+#define CODEC_TYPE_FLV1 7
+#define CODEC_TYPE_FLV1_LABEL "RetroEffects.Codec.FLV1"
+#define CODEC_TYPE_MPEG1 8
+#define CODEC_TYPE_MPEG1_LABEL "RetroEffects.Codec.MPEG1"
+#define CODEC_TYPE_MJPEG 9
+#define CODEC_TYPE_MJPEG_LABEL "RetroEffects.Codec.MJPEG"
 struct retro_video_obs;
 #endif
 

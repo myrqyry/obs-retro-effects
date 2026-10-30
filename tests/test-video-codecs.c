@@ -81,5 +81,51 @@ int main(void)
 	const uint64_t mpeg4_bytes = verify(RETRO_VIDEO_MPEG4_PART2, 64000, &mpeg4_frames);
 	printf("VIDEO_CODEC_PASS h263_frames=%d mpeg4_frames=%d h263_bytes=%llu mpeg4_bytes=%llu\n", h263_frames,
 	       mpeg4_frames, (unsigned long long)h263_bytes, (unsigned long long)mpeg4_bytes);
+	/* Real distinct encoder families, not parameter aliases of MPEG-4. */
+	const struct {
+		enum retro_video_codec id;
+		int width, height, fps, bitrate, gop;
+	} gallery[] = {
+		{RETRO_VIDEO_CINEPAK, 320, 240, 15, 300000, 15},  {RETRO_VIDEO_SVQ1, 320, 240, 15, 250000, 15},
+		{RETRO_VIDEO_MSVIDEO1, 160, 120, 15, 180000, 15}, {RETRO_VIDEO_FLV1, 320, 240, 15, 200000, 15},
+		{RETRO_VIDEO_MPEG1, 352, 288, 25, 1150000, 15},   {RETRO_VIDEO_MJPEG, 320, 240, 15, 1500000, 15}};
+	for (size_t c = 0; c < sizeof(gallery) / sizeof(gallery[0]); ++c) {
+		const struct retro_video_options opts = {.codec = gallery[c].id,
+							 .width = gallery[c].width,
+							 .height = gallery[c].height,
+							 .fps = gallery[c].fps,
+							 .bitrate = gallery[c].bitrate,
+							 .gop_size = gallery[c].gop};
+		assert(retro_video_supported_size(opts.codec, opts.width, opts.height));
+		struct retro_video *enc = retro_video_create(&opts);
+		assert(enc != NULL);
+		size_t count = (size_t)opts.width * opts.height * 4;
+		uint8_t *input = malloc(count), *output = malloc(count);
+		assert(input && output);
+		int pictures = 0;
+		unsigned long long difference = 0;
+		for (int frame = 0; frame < 18; ++frame) {
+			input_frame(input, opts.width, opts.height, frame);
+			memset(output, 0, count);
+			int result = retro_video_process(enc, input, opts.width * 4, output, opts.width * 4);
+			assert(result >= 0);
+			if (result == 1) {
+				++pictures;
+				for (size_t n = 0; n < count; n += 4) {
+					assert(output[n + 3] == 255);
+					difference += abs((int)input[n] - (int)output[n]);
+				}
+			}
+		}
+		printf("GALLERY_CODEC codec=%d pictures=%d packets=%llu bytes=%llu difference=%llu\n", opts.codec,
+		       pictures, (unsigned long long)retro_video_encoded_packets(enc),
+		       (unsigned long long)retro_video_encoded_bytes(enc), difference);
+		assert(pictures >= 15);
+		assert(retro_video_encoded_packets(enc) >= 15);
+		assert(difference > 3000);
+		retro_video_destroy(enc);
+		free(output);
+		free(input);
+	}
 	return 0;
 }

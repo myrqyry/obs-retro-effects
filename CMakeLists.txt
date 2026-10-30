@@ -47,7 +47,7 @@ if(ENABLE_VIDEO_CODECS)
         add_executable(test_h263_obs tests/test-h263-obs.cpp)
         target_link_libraries(test_h263_obs PRIVATE OBS::libobs)
         file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/h263-test-home")
-        foreach(format h263 mpeg4)
+        foreach(format h263 mpeg4 cinepak svq1 msvideo1 flv1 mpeg1 mjpeg)
           add_test(
             NAME ${format}_obs_render
             COMMAND ${CMAKE_COMMAND} -E env

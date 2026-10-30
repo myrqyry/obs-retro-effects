@@ -93,13 +93,25 @@ static obs_source_info input_info = {.id = "h263_test_input",
 				     .video_render = input_render};
 int main(int argc, char **argv)
 {
-	if (argc != 4 || (std::strcmp(argv[3], "h263") != 0 && std::strcmp(argv[3], "mpeg4") != 0)) {
-		std::fprintf(stderr, "Usage: %s <plugin.so> <data-dir> <h263|mpeg4>\n", argv[0]);
+	struct CodecCase {
+		const char *name;
+		int ui_id, fps, bitrate, gop;
+	};
+	const CodecCase cases[] = {{"h263", 2, 12, 68000, 12},      {"mpeg4", 3, 12, 68000, 12},
+				   {"cinepak", 4, 15, 300000, 15},  {"svq1", 5, 15, 250000, 15},
+				   {"msvideo1", 6, 15, 180000, 15}, {"flv1", 7, 15, 200000, 15},
+				   {"mpeg1", 8, 25, 1150000, 15},   {"mjpeg", 9, 15, 1500000, 15}};
+	const CodecCase *selected = nullptr;
+	if (argc == 4)
+		for (const auto &item : cases)
+			if (std::strcmp(argv[3], item.name) == 0)
+				selected = &item;
+	if (!selected) {
+		std::fprintf(stderr, "Usage: %s <plugin.so> <data-dir> <codec name>\n", argv[0]);
 		return 2;
 	}
 	setbuf(stdout, nullptr);
-	const bool use_mpeg4 = std::strcmp(argv[3], "mpeg4") == 0;
-	const int selected_codec = use_mpeg4 ? 3 : 2;
+	const int selected_codec = selected->ui_id;
 	std::printf("VIDEO_SELECTED_CODEC %s\n", argv[3]);
 	if (!obs_startup("en-US", nullptr, nullptr))
 		return 3;
@@ -127,11 +139,13 @@ int main(int argc, char **argv)
 	auto *settings = obs_data_create();
 	obs_data_set_int(settings, "filter_type", 10);
 	obs_data_set_int(settings, "codec_type", selected_codec);
-	// Legacy H.263-only builds stored these names. Verify migration even if
-	// the selected mode is MPEG-4 Visual.
-	obs_data_set_int(settings, "codec_h263_fps", 12);
-	obs_data_set_int(settings, "codec_h263_bitrate", 68000);
-	obs_data_set_int(settings, "codec_h263_gop", 12);
+	if (selected_codec <= 3) {
+		// Verify actual migration from the previous H.263-only build.
+		obs_data_set_int(settings, "codec_h263_fps", 12);
+		obs_data_set_int(settings, "codec_h263_bitrate", 68000);
+		obs_data_set_int(settings, "codec_h263_gop", 12);
+	}
+	// For new choices, verify the active codec supplies its distinct preset.
 	auto *filter = obs_source_create("obs_retro_effects_filter", "h263-filter", settings, nullptr);
 	obs_data_release(settings);
 	if (!source || !filter) {
@@ -167,7 +181,7 @@ int main(int argc, char **argv)
 					bar_luma = (int)bar[0] + (int)bar[1] + (int)bar[2];
 					if (center_luma > 25)
 						nonzero_frames++;
-					if (first_red < 0)
+					if (first_red < 0 && center_luma > 25)
 						first_red = middle[0];
 					last_red = middle[0];
 					std::printf("VIDEO_GPU sample=%d center=%d,%d,%d,%d bar=%d,%d,%d,%d\n", attempt,
@@ -183,9 +197,9 @@ int main(int argc, char **argv)
 		obs_leave_graphics();
 	}
 	auto *migrated_settings = obs_source_get_settings(filter);
-	bool migrated = migrated_settings && obs_data_get_int(migrated_settings, "codec_video_fps") == 12 &&
-			obs_data_get_int(migrated_settings, "codec_video_bitrate") == 68000 &&
-			obs_data_get_int(migrated_settings, "codec_video_gop") == 12;
+	bool migrated = migrated_settings && obs_data_get_int(migrated_settings, "codec_video_fps") == selected->fps &&
+			obs_data_get_int(migrated_settings, "codec_video_bitrate") == selected->bitrate &&
+			obs_data_get_int(migrated_settings, "codec_video_gop") == selected->gop;
 	printf("VIDEO_SETTINGS_MIGRATED codec=%s pass=%d\n", argv[3], int(migrated));
 	if (migrated_settings)
 		obs_data_release(migrated_settings);
@@ -216,6 +230,14 @@ int main(int argc, char **argv)
 				mpeg4_exposed = true;
 		}
 	codec_exposed = codec_exposed && h263_exposed && mpeg4_exposed;
+	if (codec_choice)
+		for (const auto &item : cases) {
+			bool found = false;
+			for (size_t i = 0; i < obs_property_list_item_count(codec_choice); ++i)
+				if (obs_property_list_item_int(codec_choice, i) == item.ui_id)
+					found = true;
+			codec_exposed = codec_exposed && found;
+		}
 	bool controls_ok = codec_exposed && video_options && obs_property_visible(video_options);
 	printf("VIDEO_GUI_CONFIG enabled=%d controls_visible=%d\n", int(codec_exposed), int(controls_ok));
 	if (properties)
@@ -239,6 +261,29 @@ int main(int argc, char **argv)
 		obs_properties_destroy(rpza_properties);
 	if (!rpza_restored)
 		return 9;
+
+	// Simulate a genuine UI selection after RPZA. The callback must switch
+	// property visibility and load that codec's distinct starting profile.
+	auto *selection_props = obs_source_properties(filter);
+	auto *choice = selection_props ? obs_properties_get(selection_props, "codec_type") : nullptr;
+	auto *chosen_settings = obs_source_get_settings(filter);
+	obs_data_set_int(chosen_settings, "codec_type", selected_codec);
+	bool callback_updated = choice && obs_property_modified(choice, chosen_settings);
+	const int expected_fps = selected_codec <= 3 ? 10 : selected->fps;
+	const int expected_bitrate = selected_codec <= 3 ? 64000 : selected->bitrate;
+	const int expected_gop = selected_codec <= 3 ? 30 : selected->gop;
+	bool preset_ok = callback_updated && obs_data_get_int(chosen_settings, "codec_video_fps") == expected_fps &&
+			 obs_data_get_int(chosen_settings, "codec_video_bitrate") == expected_bitrate &&
+			 obs_data_get_int(chosen_settings, "codec_video_gop") == expected_gop;
+	auto *video_group = selection_props ? obs_properties_get(selection_props, "codec_video_options") : nullptr;
+	preset_ok = preset_ok && video_group && obs_property_visible(video_group);
+	printf("VIDEO_UI_PRESET codec=%s pass=%d\n", argv[3], int(preset_ok));
+	obs_source_update(filter, chosen_settings);
+	obs_data_release(chosen_settings);
+	if (selection_props)
+		obs_properties_destroy(selection_props);
+	if (!preset_ok)
+		return 11;
 	obs_set_output_source(0, nullptr);
 	obs_source_filter_remove(source, filter);
 	obs_source_release(filter);
