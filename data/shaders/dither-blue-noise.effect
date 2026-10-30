@@ -9,6 +9,7 @@ uniform float color_steps;
 uniform float dither_variant;
 uniform float dither_diffusion_prepass;
 uniform texture2d processed_image;
+uniform texture2d real_blue_noise_mask;
 sampler_state pointSampler {
     Filter = Point;
     AddressU = Clamp;
@@ -234,6 +235,24 @@ float3 quantise(float3 color, float dither)
 	return floor(color.rgb * color_steps + dither) / color_steps;
 }
 
+// Ulichney void-and-cluster: pregenerated, tileable 64x64 rank mask.
+// Sample at exact pixel centers with point filtering, no interpolation.
+float4 ApplyTrueBlueNoise(float4 color, float2 uv)
+{
+	float2 pixel = pxFromUv(uv);
+	float2 cell = mod(pixel - offset, float2(64.0, 64.0));
+	float threshold = real_blue_noise_mask.Sample(pointSampler, (cell + 0.5) / 64.0).r;
+	color.rgb = quantise(color.rgb, threshold);
+	return color;
+}
+
+float4 ApplyPosterize(float4 color)
+{
+	// Nearest palette level. No Bayer/noise/error diffusion whatsoever.
+	color.rgb = floor(color.rgb * color_steps + 0.5) / color_steps;
+	return color;
+}
+
 float4 ApplyBlueNoise(float4 color, float2 uv)
 {
 	float2 px = pxFromUv(uv);
@@ -303,6 +322,40 @@ float4 mainImageMonoOrdered(VertData v_in) : TARGET
 	float4 color = sampleSourceMono(v_in.uv);
 
 	return ApplyDitherNoise(color, v_in.uv);
+}
+
+float4 mainImageColorBlueNoiseMask(VertData v_in) : TARGET
+{
+	return ApplyTrueBlueNoise(sampleSource(v_in.uv), v_in.uv);
+}
+float4 mainImageMonoBlueNoiseMask(VertData v_in) : TARGET
+{
+	return ApplyTrueBlueNoise(sampleSourceMono(v_in.uv), v_in.uv);
+}
+float4 mainImageColorPosterize(VertData v_in) : TARGET
+{
+	return ApplyPosterize(sampleSource(v_in.uv));
+}
+float4 mainImageMonoPosterize(VertData v_in) : TARGET
+{
+	return ApplyPosterize(sampleSourceMono(v_in.uv));
+}
+
+technique DrawColorBlueNoiseMask
+{
+	pass { vertex_shader = mainTransform(v_in); pixel_shader = mainImageColorBlueNoiseMask(v_in); }
+}
+technique DrawMonoBlueNoiseMask
+{
+	pass { vertex_shader = mainTransform(v_in); pixel_shader = mainImageMonoBlueNoiseMask(v_in); }
+}
+technique DrawColorPosterize
+{
+	pass { vertex_shader = mainTransform(v_in); pixel_shader = mainImageColorPosterize(v_in); }
+}
+technique DrawMonoPosterize
+{
+	pass { vertex_shader = mainTransform(v_in); pixel_shader = mainImageMonoPosterize(v_in); }
 }
 
 technique DrawColorBN

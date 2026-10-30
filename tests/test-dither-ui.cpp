@@ -35,8 +35,8 @@ int main(int argc, char **argv)
 	std::this_thread::sleep_for(std::chrono::milliseconds(250));
 	auto *properties = obs_source_properties(filter);
 	auto *mode = properties ? obs_properties_get(properties, "dither_type") : nullptr;
-	const int expected[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-	bool all_found = mode && obs_property_list_item_count(mode) == 10;
+	const int expected[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+	bool all_found = mode && obs_property_list_item_count(mode) == 12;
 	for (int wanted : expected) {
 		bool found = false;
 		if (mode)
@@ -102,6 +102,16 @@ int main(int argc, char **argv)
 		std::this_thread::sleep_for(std::chrono::milliseconds(120));
 		bounds_ok = bounds_ok && migrated;
 		printf("DITHER_LEGACY_BAYER_SIZE=%d MIGRATION=%d\n", old_size, int(migrated));
+	}
+	for (int extra : {11, 12}) {
+		obs_data_t *option = obs_source_get_settings(filter);
+		obs_data_set_int(option, "dither_type", extra);
+		bool accepted = mode && obs_property_modified(mode, option);
+		auto *offset = properties ? obs_properties_get(properties, "dither_offset_x") : nullptr;
+		accepted = accepted && offset && (obs_property_visible(offset) == (extra == 12));
+		obs_data_release(option);
+		bounds_ok = bounds_ok && accepted;
+		printf("DITHER_ADDITIONAL_MODE=%d controls=%d\n", extra, int(accepted));
 	}
 	printf("DITHER_METHODS_EXPOSED=%d BOUNDS_AND_VISIBILITY=%d\n", int(all_found), int(bounds_ok));
 	if (properties)

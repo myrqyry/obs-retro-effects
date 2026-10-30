@@ -24,6 +24,11 @@
 #define DITHER_TYPE_BAYER_2_LABEL "RetroEffects.Dither.Bayer2"
 #define DITHER_TYPE_BAYER_8 10
 #define DITHER_TYPE_BAYER_8_LABEL "RetroEffects.Dither.Bayer8"
+/* New modes: never reuse existing saved OBS enum values. */
+#define DITHER_TYPE_NONE 11
+#define DITHER_TYPE_NONE_LABEL "RetroEffects.Dither.None"
+#define DITHER_TYPE_TRUE_BLUE_NOISE 12
+#define DITHER_TYPE_TRUE_BLUE_NOISE_LABEL "RetroEffects.Dither.TrueBlueNoise"
 
 struct dither_filter_data;
 typedef struct dither_filter_data dither_filter_data_t;
@@ -41,6 +46,8 @@ struct dither_filter_data {
 	gs_eparam_t *param_dither_variant;
 	gs_eparam_t *param_diffusion_prepass;
 	gs_eparam_t *param_processed_image;
+	gs_eparam_t *param_blue_noise_mask;
+	gs_texture_t *blue_noise_mask;
 	gs_texrender_t *diffusion_prepass;
 	gs_stagesurf_t *diffusion_stage;
 	gs_texture_t *diffusion_texture;

@@ -1,6 +1,7 @@
 #include "dither.h"
 #include "../obs-utils.h"
 #include "dither-cpu-render.h"
+#include "blue-noise-mask.generated.h"
 
 void dither_create(retro_effects_filter_data_t *filter)
 {
@@ -21,6 +22,8 @@ void dither_destroy(retro_effects_filter_data_t *filter)
 	if (data->effect_dither)
 		gs_effect_destroy(data->effect_dither);
 	dither_cpu_destroy(data);
+	if (data->blue_noise_mask)
+		gs_texture_destroy(data->blue_noise_mask);
 
 	obs_leave_graphics();
 
@@ -102,7 +105,8 @@ void dither_filter_properties(retro_effects_filter_data_t *data, obs_properties_
 							      obs_module_text("RetroEffects.Dither.Type"),
 							      OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 
-	/* One visible selector for all nine methods plus the existing noise mode. */
+	/* One Dither Type dropdown; persisted IDs 1–10 remain unchanged. */
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_NONE_LABEL), DITHER_TYPE_NONE);
 	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_BAYER_2_LABEL), DITHER_TYPE_BAYER_2);
 	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_ORDERED_LABEL), DITHER_TYPE_ORDERED);
 	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_BAYER_8_LABEL), DITHER_TYPE_BAYER_8);
@@ -112,6 +116,8 @@ void dither_filter_properties(retro_effects_filter_data_t *data, obs_properties_
 				  DITHER_TYPE_DIRECTIONAL_V);
 	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_DIRECTIONAL_D_LABEL),
 				  DITHER_TYPE_DIRECTIONAL_D);
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_TRUE_BLUE_NOISE_LABEL),
+				  DITHER_TYPE_TRUE_BLUE_NOISE);
 	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_UNORDERED_LABEL), DITHER_TYPE_UNORDERED);
 	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_FLOYD_LABEL), DITHER_TYPE_FLOYD);
 	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_ATKINSON_LABEL), DITHER_TYPE_ATKINSON);
@@ -201,6 +207,21 @@ void dither_filter_video_render(retro_effects_filter_data_t *data)
 
 	if (filter->param_dither_variant)
 		gs_effect_set_float(filter->param_dither_variant, (float)filter->dither_type);
+	if (filter->dither_type == DITHER_TYPE_TRUE_BLUE_NOISE) {
+		/* The exact 64x64 void-and-cluster mask is embedded at build time.
+		 * Create the R8 texture once, not on every frame. */
+		if (!filter->blue_noise_mask) {
+			const uint8_t *pixels[] = {retro_blue_noise_r8};
+			filter->blue_noise_mask =
+				gs_texture_create(RETRO_BLUE_NOISE_SIZE, RETRO_BLUE_NOISE_SIZE, GS_R8, 1, pixels, 0);
+		}
+		if (!filter->blue_noise_mask || !filter->param_blue_noise_mask) {
+			blog(LOG_WARNING, "[obs-retro-effects] Real blue-noise mask unavailable, skipping filter");
+			obs_source_skip_video_filter(base->context);
+			return;
+		}
+		gs_effect_set_texture(filter->param_blue_noise_mask, filter->blue_noise_mask);
+	}
 	if (filter->dither_type >= DITHER_TYPE_FLOYD && filter->dither_type <= DITHER_TYPE_SIERRA_LITE) {
 		if (!dither_cpu_render(filter, base, image, effect))
 			obs_source_skip_video_filter(base->context);
@@ -215,7 +236,11 @@ void dither_filter_video_render(retro_effects_filter_data_t *data)
 	struct dstr technique;
 	dstr_init_copy(&technique, "Draw");
 	dstr_cat(&technique, filter->monochromatic ? "Mono" : "Color");
-	dstr_cat(&technique, filter->dither_type == DITHER_TYPE_UNORDERED ? "BN" : "Ordered");
+	const char *method = filter->dither_type == DITHER_TYPE_UNORDERED         ? "BN"
+			     : filter->dither_type == DITHER_TYPE_TRUE_BLUE_NOISE ? "BlueNoiseMask"
+			     : filter->dither_type == DITHER_TYPE_NONE            ? "Posterize"
+										  : "Ordered";
+	dstr_cat(&technique, method);
 
 	if (gs_texrender_begin(base->output_texrender, base->width, base->height)) {
 		gs_ortho(0.0f, (float)base->width, 0.0f, (float)base->height, -100.0f, 100.0f);
@@ -259,6 +284,7 @@ static void dither_load_effect(dither_filter_data_t *filter)
 	filter->param_dither_variant = NULL;
 	filter->param_diffusion_prepass = NULL;
 	filter->param_processed_image = NULL;
+	filter->param_blue_noise_mask = NULL;
 	char *shader_text = NULL;
 	struct dstr filename = {0};
 	dstr_cat(&filename, obs_get_module_data_path(obs_current_module()));
@@ -318,6 +344,8 @@ static void dither_load_effect(dither_filter_data_t *filter)
 				filter->param_diffusion_prepass = param;
 			} else if (strcmp(info.name, "processed_image") == 0) {
 				filter->param_processed_image = param;
+			} else if (strcmp(info.name, "real_blue_noise_mask") == 0) {
+				filter->param_blue_noise_mask = param;
 			}
 		}
 	}
@@ -345,6 +373,7 @@ static bool dither_type_modified(obs_properties_t *props, obs_property_t *p, obs
 	if (size)
 		obs_property_float_set_limits(size, diffusion ? 1.0 : 0.4, 10.0, 0.1);
 	switch (dither_type) {
+	case DITHER_TYPE_NONE:
 	case DITHER_TYPE_ORDERED:
 	case DITHER_TYPE_BAYER_2:
 	case DITHER_TYPE_BAYER_8:
@@ -352,6 +381,7 @@ static bool dither_type_modified(obs_properties_t *props, obs_property_t *p, obs
 		setting_visibility("dither_offset_y", false, props);
 		break;
 	case DITHER_TYPE_UNORDERED:
+	case DITHER_TYPE_TRUE_BLUE_NOISE:
 		setting_visibility("dither_offset_x", true, props);
 		setting_visibility("dither_offset_y", true, props);
 		break;

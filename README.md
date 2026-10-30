@@ -77,28 +77,45 @@ Users have the ability to adjust the number of color levels used in the posteriz
 ## Dither
 Send your video back to Windows 3.1 with the dithering filter.  Dithering is a technique used on lower bit-depth displays to smooth transitions between different colors or shades by adding noise or patterns, thereby reducing the appearance of banding or color stepping.
 
-The dithering filter now includes all the methods previously used
-in the **noita-chat** emote palette pipeline:
+All **12 options** live in the single **Dither Type** dropdown:
 
-- **Ordered, GPU:** Bayer 2×2, Bayer 4×4, Bayer 8×8, and the
-  directional 2×2 Horizontal, Vertical and Diagonal distributions from
-  noita-chat (utils/colorScience.ts). The directional patterns intentionally
-  repeat threshold ranks and are **not** ordinary Bayer permutations.
-- **Quasi-random, GPU:** the original Hilbert R1/triangular noise mode
-  (historically labeled "Unordered"; it is not a sampled blue-noise texture).
-- **True sequential error diffusion, CPU:** Floyd–Steinberg, Atkinson, and
-  Sierra Lite, using the actual neighbor error propagation kernels from
-  noita-chat. These are not ordered-dither shaders relabeled as diffusion.
+- **None (Posterize), GPU:** nearest-level RGB quantization *without* noise,
+  ordered thresholds, or error propagation. This is different from bypassing
+  the filter: color steps, monochrome, contrast and gamma still work.
+- **Bayer and directional, GPU:** Bayer 2×2, 4×4, 8×8; directional 2×2
+  Horizontal, Vertical and Diagonal masks from noita-chat
+  (utils/colorScience.ts). These intentionally repeat threshold ranks and
+  are **not** ordinary Bayer permutations.
+- **Blue noise (void-and-cluster), GPU:** a genuine, deterministic and
+  **tileable 64×64** blue-noise threshold mask generated using Ulichney's
+  three-phase void-and-cluster procedure. The R8 mask is generated once and
+  embedded in the plugin; the shader point-samples it per logical pixel.
+  There is no per-frame CPU mask generation or added random flickering.
+- **Quasi-random, GPU:** the retained original Hilbert R1/triangular noise
+  mode (previously "Unordered"). **Not** the same algorithm as blue noise.
+- **True sequential error diffusion, CPU:** Floyd–Steinberg, Atkinson,
+  Sierra Lite; actual neighbor-error propagation weights from noita-chat,
+  not ordered masks relabeled as diffusion.
 
 The noita-chat code quantizes against a selected arbitrary color palette;
 this OBS filter instead applies the same distributions/kernels to its
 existing **colors-per-channel** uniform RGB palette. Dither size,
 monochrome, gamma, contrast and color depth remain configurable.
-All ten methods are selectable from **one Dither Type dropdown**, without
-a separate Bayer matrix size control. Saved Bayer sizes from the older
-two-control interface are migrated without changing their visual result.
-Noise offset controls appear only for the original Hilbert mode; pixel
-rounding is hidden only for the three CPU diffusion algorithms.
+The Bayer matrix size is integrated into the single dropdown. Saved Bayer
+sizes from the older two-control interface migrate without changing their
+visual result. Noise offsets apply to both the original Hilbert method and
+the tileable blue-noise mask. Pixel rounding is hidden only for CPU diffusion.
+
+The blue-noise mask can be reproduced by running
+scripts/generate-blue-noise-mask.py in a Python environment with compatible
+NumPy and SciPy. On the development machine, use
+PYTHONNOUSERSITE=1 python3 scripts/generate-blue-noise-mask.py.
+The script validates 256 equal-population levels and low-frequency spectral
+suppression against a shuffled white-noise threshold mask at 25%, 50%, and
+75% coverage. The file src/filters/blue-noise-mask.generated.h is checked
+in so the installed plugin has **no runtime Python dependencies**.
+Reference: R. Ulichney, "Filter Design for Void-and-Cluster Dither Arrays",
+SID 1994, https://cv.ulichney.com/papers/1994-filter-design.pdf.
 
 **Performance:** GPU ordered modes are single-pass. Error diffusion
 requires an additional GPU-to-CPU readback, a sequential CPU propagation

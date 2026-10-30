@@ -24,6 +24,8 @@ if(BUILD_TESTING)
     target_link_libraries(test_dither_diffusion PRIVATE m)
   endif()
   add_test(NAME dither_diffusion COMMAND test_dither_diffusion)
+  add_executable(test_blue_noise_mask tests/test-blue-noise-mask.c)
+  add_test(NAME blue_noise_mask COMMAND test_blue_noise_mask)
 endif()
 
 
