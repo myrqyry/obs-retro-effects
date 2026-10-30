@@ -101,9 +101,11 @@ The noita-chat code quantizes against a selected arbitrary color palette;
 this OBS filter instead applies the same distributions/kernels to its
 existing **colors-per-channel** uniform RGB palette. Dither size,
 monochrome, gamma, contrast and color depth remain configurable.
-**Dither Size** supports 0.4–128 px on GPU modes and 1–128 px
-on CPU error-diffusion modes. The default remains 1 px, and larger
-values create much chunkier logical pixels without changing saved presets.
+**Dither Size** is an integer-only slider from 1–128 px for every mode.
+The default remains 1 px; larger values create chunkier logical pixels.
+Old fractional values are converted to the nearest whole pixel and
+clamped to that range when the filter loads. Dither method choices
+and other settings are preserved.
 The Bayer matrix size is integrated into the single dropdown. Saved Bayer
 sizes from the older two-control interface migrate without changing their
 visual result. Noise offsets apply to both the original Hilbert method and

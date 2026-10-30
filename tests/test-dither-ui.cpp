@@ -5,6 +5,7 @@
 #include <chrono>
 #include <thread>
 #include <initializer_list>
+#include <utility>
 int main(int argc, char **argv)
 {
 	if (argc != 3)
@@ -51,29 +52,50 @@ int main(int argc, char **argv)
 			}
 	}
 	auto *size = properties ? obs_properties_get(properties, "dither_size") : nullptr;
-	bool bounds_ok = size && obs_property_float_min(size) == 0.4 && obs_property_float_max(size) == 128.0;
+	bool bounds_ok = size && obs_property_get_type(size) == OBS_PROPERTY_INT && obs_property_int_min(size) == 1 &&
+			 obs_property_int_max(size) == 128 && obs_property_int_step(size) == 1;
 	auto *bayer = properties ? obs_properties_get(properties, "dither_bayer_size") : nullptr;
 	bounds_ok = bounds_ok && !bayer; // All Bayer sizes belong in Dither Type.
 	auto *settings2 = obs_source_get_settings(filter);
 	obs_data_set_int(settings2, "dither_type", 6);
 	bool updated = mode && obs_property_modified(mode, settings2);
-	bounds_ok = bounds_ok && updated && obs_property_float_min(size) == 1.0 &&
-		    obs_property_float_max(size) == 128.0;
+	bounds_ok = bounds_ok && updated && obs_property_int_min(size) == 1 && obs_property_int_max(size) == 128;
 	auto *pixel_round = properties ? obs_properties_get(properties, "dither_round") : nullptr;
 	bounds_ok = bounds_ok && pixel_round && !obs_property_visible(pixel_round);
 	obs_data_set_int(settings2, "dither_type", 1);
 	updated = mode && obs_property_modified(mode, settings2);
-	bounds_ok = bounds_ok && updated && obs_property_float_min(size) == 0.4 &&
-		    obs_property_float_max(size) == 128.0 && obs_property_visible(pixel_round);
-	// Bayer 2x2 and 8x8 are GPU modes, so pixel rounding must remain
-	// available and the finer 0.4px dither size lower bound remains valid.
+	bounds_ok = bounds_ok && updated && obs_property_int_min(size) == 1 && obs_property_int_max(size) == 128 &&
+		    obs_property_visible(pixel_round);
+	// Bayer 2x2 and 8x8 remain GPU modes with whole-pixel size limits
+	// and the existing optional pixel-rounding control.
 	for (int bayer_mode : {9, 10}) {
 		obs_data_set_int(settings2, "dither_type", bayer_mode);
 		bool changed = mode && obs_property_modified(mode, settings2);
-		bool gpu_options = changed && obs_property_float_min(size) == 0.4 &&
-				   obs_property_float_max(size) == 128.0 && obs_property_visible(pixel_round);
+		bool gpu_options = changed && obs_property_int_min(size) == 1 && obs_property_int_max(size) == 128 &&
+				   obs_property_visible(pixel_round);
 		bounds_ok = bounds_ok && gpu_options;
 		printf("DITHER_GPU_BAYER_OPTIONS mode=%d pass=%d\n", bayer_mode, int(gpu_options));
+	}
+	// Old saved fractional sizes must normalize once to the nearest whole
+	// size and remain integer-valued when OBS reads/writes the settings.
+	for (const auto &sample : {std::pair<double, int>{0.4, 1}, {1.4, 1}, {2.6, 3}, {9.8, 10}, {128.7, 128}}) {
+		auto *old_preset = obs_data_create();
+		obs_data_set_int(old_preset, "filter_type", 5);
+		obs_data_set_double(old_preset, "dither_size", sample.first);
+		auto *old_filter =
+			obs_source_create("obs_retro_effects_filter", "fractional-preset", old_preset, nullptr);
+		obs_data_release(old_preset);
+		std::this_thread::sleep_for(std::chrono::milliseconds(120));
+		auto *updated_settings = old_filter ? obs_source_get_settings(old_filter) : nullptr;
+		double saved = updated_settings ? obs_data_get_double(updated_settings, "dither_size") : -1.0;
+		bool normalized = updated_settings && saved == (double)sample.second &&
+				  obs_data_get_int(updated_settings, "dither_size") == sample.second;
+		if (updated_settings)
+			obs_data_release(updated_settings);
+		if (old_filter)
+			obs_source_release(old_filter);
+		printf("DITHER_INTEGER_SIZE old=%.1f new=%.1f pass=%d\n", sample.first, saved, int(normalized));
+		bounds_ok = bounds_ok && normalized;
 	}
 	obs_data_release(settings2);
 	for (int old_size : {2, 4, 8}) {
