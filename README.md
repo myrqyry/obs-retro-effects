@@ -80,10 +80,10 @@ Send your video back to Windows 3.1 with the dithering filter.  Dithering is a t
 The dithering filter now includes all the methods previously used
 in the **noita-chat** emote palette pipeline:
 
-- **Ordered, GPU:** traditional Bayer 2×2, 4×4, 8×8, and the exact
-  2×2 horizontal, vertical and diagonal threshold distributions from
-  noita-chat (utils/colorScience.ts). The latter three are intentionally
-  directional patterns with repeated ranks, **not** standard Bayer permutations.
+- **Ordered, GPU:** Bayer 2×2, Bayer 4×4, Bayer 8×8, and the
+  directional 2×2 Horizontal, Vertical and Diagonal distributions from
+  noita-chat (utils/colorScience.ts). The directional patterns intentionally
+  repeat threshold ranks and are **not** ordinary Bayer permutations.
 - **Quasi-random, GPU:** the original Hilbert R1/triangular noise mode
   (historically labeled "Unordered"; it is not a sampled blue-noise texture).
 - **True sequential error diffusion, CPU:** Floyd–Steinberg, Atkinson, and
@@ -93,10 +93,12 @@ in the **noita-chat** emote palette pipeline:
 The noita-chat code quantizes against a selected arbitrary color palette;
 this OBS filter instead applies the same distributions/kernels to its
 existing **colors-per-channel** uniform RGB palette. Dither size,
-monochrome, gamma, contrast and color depth remain configurable. The Bayer
-matrix size option only appears for standard ordered Bayer, noise offset
-controls appear only for the original Hilbert mode, and pixel rounding is
-hidden for the CPU algorithms.
+monochrome, gamma, contrast and color depth remain configurable.
+All ten methods are selectable from **one Dither Type dropdown**, without
+a separate Bayer matrix size control. Saved Bayer sizes from the older
+two-control interface are migrated without changing their visual result.
+Noise offset controls appear only for the original Hilbert mode; pixel
+rounding is hidden only for the three CPU diffusion algorithms.
 
 **Performance:** GPU ordered modes are single-pass. Error diffusion
 requires an additional GPU-to-CPU readback, a sequential CPU propagation

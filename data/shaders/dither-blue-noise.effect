@@ -245,7 +245,7 @@ float4 ApplyBlueNoise(float4 color, float2 uv)
 // The three 2x2 stylistic matrices are the EXACT distributions used in
 // noita-chat/utils/colorScience.ts, not standard 2x2 Bayer permutations.
 // Matrix rows: H [[3,3],[1,0]], V [[1,3],[0,3]], D [[3,0],[0,2]].
-float noita_2x2_mask(float2 px)
+float directional_2x2_mask(float2 px)
 {
 	float2 cell = mod(px, float2(2.0, 2.0));
 	bool right = cell.x >= 1.0;
@@ -266,7 +266,7 @@ float noita_2x2_mask(float2 px)
 float4 ApplyDitherNoise(float4 color, float2 uv)
 {
 	float2 px = pxFromUv(uv);
-	float noise = dither_variant > 2.5 ? noita_2x2_mask(px) : get_bayer(px);
+	float noise = (dither_variant >= 3.0 && dither_variant <= 5.0) ? directional_2x2_mask(px) : get_bayer(px);
 	color.rgb = quantise(color.rgb, noise);
 	return color;
 }

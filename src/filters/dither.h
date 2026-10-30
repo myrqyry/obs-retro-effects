@@ -7,18 +7,23 @@
 #define DITHER_TYPE_ORDERED_LABEL "RetroEffects.Dither.Ordered"
 #define DITHER_TYPE_UNORDERED 2
 #define DITHER_TYPE_UNORDERED_LABEL "RetroEffects.Dither.Unordered"
-#define DITHER_TYPE_NOITA_H 3
-#define DITHER_TYPE_NOITA_H_LABEL "RetroEffects.Dither.NoitaHorizontal"
-#define DITHER_TYPE_NOITA_V 4
-#define DITHER_TYPE_NOITA_V_LABEL "RetroEffects.Dither.NoitaVertical"
-#define DITHER_TYPE_NOITA_D 5
-#define DITHER_TYPE_NOITA_D_LABEL "RetroEffects.Dither.NoitaDiagonal"
+/* Persisted mode IDs 1..8 remain unchanged for existing OBS sources. */
+#define DITHER_TYPE_DIRECTIONAL_H 3
+#define DITHER_TYPE_DIRECTIONAL_H_LABEL "RetroEffects.Dither.DirectionalHorizontal"
+#define DITHER_TYPE_DIRECTIONAL_V 4
+#define DITHER_TYPE_DIRECTIONAL_V_LABEL "RetroEffects.Dither.DirectionalVertical"
+#define DITHER_TYPE_DIRECTIONAL_D 5
+#define DITHER_TYPE_DIRECTIONAL_D_LABEL "RetroEffects.Dither.DirectionalDiagonal"
 #define DITHER_TYPE_FLOYD 6
 #define DITHER_TYPE_FLOYD_LABEL "RetroEffects.Dither.Floyd"
 #define DITHER_TYPE_ATKINSON 7
 #define DITHER_TYPE_ATKINSON_LABEL "RetroEffects.Dither.Atkinson"
 #define DITHER_TYPE_SIERRA_LITE 8
 #define DITHER_TYPE_SIERRA_LITE_LABEL "RetroEffects.Dither.SierraLite"
+#define DITHER_TYPE_BAYER_2 9
+#define DITHER_TYPE_BAYER_2_LABEL "RetroEffects.Dither.Bayer2"
+#define DITHER_TYPE_BAYER_8 10
+#define DITHER_TYPE_BAYER_8_LABEL "RetroEffects.Dither.Bayer8"
 
 struct dither_filter_data;
 typedef struct dither_filter_data dither_filter_data_t;
@@ -66,6 +71,5 @@ extern void dither_filter_update(retro_effects_filter_data_t *data, obs_data_t *
 static void dither_set_functions(retro_effects_filter_data_t *filter);
 static void dither_load_effect(dither_filter_data_t *filter);
 static bool dither_type_modified(obs_properties_t *props, obs_property_t *p, obs_data_t *settings);
-static bool dither_bayer_size_modified(void *data, obs_properties_t *props, obs_property_t *p, obs_data_t *settings);
 static bool dither_round_to_pixel_modified(void *data, obs_properties_t *props, obs_property_t *p,
 					   obs_data_t *settings);

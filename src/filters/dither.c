@@ -48,8 +48,26 @@ void dither_filter_update(retro_effects_filter_data_t *data, obs_data_t *setting
 {
 	dither_filter_data_t *filter = data->active_filter_data;
 	filter->dither_size = (float)obs_data_get_double(settings, "dither_size");
-	filter->dither_type = (uint32_t)obs_data_get_int(settings, "dither_type");
-	filter->bayer_size = (uint32_t)obs_data_get_int(settings, "dither_bayer_size");
+	/* Before the unified dropdown, mode 1 stored its actual Bayer size
+	 * in a separate option. Migrate once, then remove the legacy key so
+	 * choosing Bayer 4x4 later cannot be remapped unexpectedly. */
+	int selected = (int)obs_data_get_int(settings, "dither_type");
+	if (selected == DITHER_TYPE_ORDERED && obs_data_has_user_value(settings, "dither_bayer_size")) {
+		int legacy_size = (int)obs_data_get_int(settings, "dither_bayer_size");
+		if (legacy_size == 2)
+			selected = DITHER_TYPE_BAYER_2;
+		else if (legacy_size == 8)
+			selected = DITHER_TYPE_BAYER_8;
+		obs_data_set_int(settings, "dither_type", selected);
+		obs_data_unset_user_value(settings, "dither_bayer_size");
+	}
+	/* Recompile only when the active ordered Bayer matrix changes.
+	 * Dither Type IDs persist; 1 means the original 4x4 matrix. */
+	uint32_t matrix_size = selected == DITHER_TYPE_BAYER_2 ? 2 : selected == DITHER_TYPE_BAYER_8 ? 8 : 4;
+	if (filter->bayer_size != matrix_size)
+		filter->reload_effect = true;
+	filter->bayer_size = matrix_size;
+	filter->dither_type = (uint32_t)selected;
 	filter->color_steps = (uint32_t)obs_data_get_int(settings, "dither_color_steps");
 	filter->monochromatic = obs_data_get_bool(settings, "dither_mono");
 	filter->round_to_pixel = obs_data_get_bool(settings, "dither_round");
@@ -67,7 +85,6 @@ void dither_filter_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_int(settings, "dither_color_steps", 1);
 	obs_data_set_default_int(settings, "dither_type", DITHER_TYPE_ORDERED);
-	obs_data_set_default_int(settings, "dither_bayer_size", 4);
 	obs_data_set_default_bool(settings, "dither_mono", false);
 	obs_data_set_default_bool(settings, "dither_round", true);
 	obs_data_set_default_double(settings, "dither_size", 1.0);
@@ -85,25 +102,21 @@ void dither_filter_properties(retro_effects_filter_data_t *data, obs_properties_
 							      obs_module_text("RetroEffects.Dither.Type"),
 							      OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 
+	/* One visible selector for all nine methods plus the existing noise mode. */
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_BAYER_2_LABEL), DITHER_TYPE_BAYER_2);
 	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_ORDERED_LABEL), DITHER_TYPE_ORDERED);
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_BAYER_8_LABEL), DITHER_TYPE_BAYER_8);
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_DIRECTIONAL_H_LABEL),
+				  DITHER_TYPE_DIRECTIONAL_H);
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_DIRECTIONAL_V_LABEL),
+				  DITHER_TYPE_DIRECTIONAL_V);
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_DIRECTIONAL_D_LABEL),
+				  DITHER_TYPE_DIRECTIONAL_D);
 	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_UNORDERED_LABEL), DITHER_TYPE_UNORDERED);
-	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_NOITA_H_LABEL), DITHER_TYPE_NOITA_H);
-	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_NOITA_V_LABEL), DITHER_TYPE_NOITA_V);
-	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_NOITA_D_LABEL), DITHER_TYPE_NOITA_D);
 	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_FLOYD_LABEL), DITHER_TYPE_FLOYD);
 	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_ATKINSON_LABEL), DITHER_TYPE_ATKINSON);
 	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_SIERRA_LITE_LABEL), DITHER_TYPE_SIERRA_LITE);
 	obs_property_set_modified_callback(dither_type, dither_type_modified);
-
-	obs_property_t *bayer_size = obs_properties_add_list(props, "dither_bayer_size",
-							     obs_module_text("RetroEffects.Dither.BayerSize"),
-							     OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-
-	obs_property_list_add_int(bayer_size, "2x2", 2);
-	obs_property_list_add_int(bayer_size, "4x4", 4);
-	obs_property_list_add_int(bayer_size, "8x8", 8);
-
-	obs_property_set_modified_callback2(bayer_size, dither_bayer_size_modified, data->active_filter_data);
 
 	// Dither Size
 	obs_property_t *p = obs_properties_add_float_slider(
@@ -311,16 +324,6 @@ static void dither_load_effect(dither_filter_data_t *filter)
 	filter->loading_effect = false;
 }
 
-static bool dither_bayer_size_modified(void *data, obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
-{
-	UNUSED_PARAMETER(p);
-	UNUSED_PARAMETER(props);
-	UNUSED_PARAMETER(settings);
-	dither_filter_data_t *filter = data;
-	filter->reload_effect = true;
-	return false;
-}
-
 static bool dither_round_to_pixel_modified(void *data, obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
 {
 	UNUSED_PARAMETER(p);
@@ -336,34 +339,33 @@ static bool dither_type_modified(obs_properties_t *props, obs_property_t *p, obs
 	UNUSED_PARAMETER(p);
 
 	int dither_type = (int)obs_data_get_int(settings, "dither_type");
-	setting_visibility("dither_round", dither_type < DITHER_TYPE_FLOYD, props);
+	bool diffusion = dither_type >= DITHER_TYPE_FLOYD && dither_type <= DITHER_TYPE_SIERRA_LITE;
+	setting_visibility("dither_round", !diffusion, props);
 	obs_property_t *size = obs_properties_get(props, "dither_size");
 	if (size)
-		obs_property_float_set_limits(size, dither_type >= DITHER_TYPE_FLOYD ? 1.0 : 0.4, 10.0, 0.1);
+		obs_property_float_set_limits(size, diffusion ? 1.0 : 0.4, 10.0, 0.1);
 	switch (dither_type) {
 	case DITHER_TYPE_ORDERED:
+	case DITHER_TYPE_BAYER_2:
+	case DITHER_TYPE_BAYER_8:
 		setting_visibility("dither_offset_x", false, props);
 		setting_visibility("dither_offset_y", false, props);
-		setting_visibility("dither_bayer_size", true, props);
 		break;
 	case DITHER_TYPE_UNORDERED:
 		setting_visibility("dither_offset_x", true, props);
 		setting_visibility("dither_offset_y", true, props);
-		setting_visibility("dither_bayer_size", false, props);
 		break;
-	case DITHER_TYPE_NOITA_H:
-	case DITHER_TYPE_NOITA_V:
-	case DITHER_TYPE_NOITA_D:
+	case DITHER_TYPE_DIRECTIONAL_H:
+	case DITHER_TYPE_DIRECTIONAL_V:
+	case DITHER_TYPE_DIRECTIONAL_D:
 		setting_visibility("dither_offset_x", false, props);
 		setting_visibility("dither_offset_y", false, props);
-		setting_visibility("dither_bayer_size", false, props);
 		break;
 	case DITHER_TYPE_FLOYD:
 	case DITHER_TYPE_ATKINSON:
 	case DITHER_TYPE_SIERRA_LITE:
 		setting_visibility("dither_offset_x", false, props);
 		setting_visibility("dither_offset_y", false, props);
-		setting_visibility("dither_bayer_size", false, props);
 		break;
 	}
 	return true;
