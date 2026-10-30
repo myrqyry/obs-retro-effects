@@ -11,6 +11,8 @@ uniform float hs_secondary_thickness;
 uniform float hs_secondary_horiz_offset;
 uniform float hs_secondary_vert_offset;
 uniform float horizontal_offset;
+uniform texture2d osd_image;
+uniform float osd_enabled;
 
 #include "noise-functions.effect"
 
@@ -21,6 +23,12 @@ sampler_state textureSampler{
     AddressV = Clamp;
     MinLOD = 0;
     MaxLOD = 0;
+};
+
+sampler_state osdSampler {
+	Filter = Point;
+	AddressU = Clamp;
+	AddressV = Clamp;
 };
 
 sampler_state borderSampler {
@@ -65,6 +73,12 @@ float4 mainImage(VertData v_in) : TARGET
 		color = color * (1.0 - pop_line) + float4(1.0, 1.0, 1.0, color.a) * pop_line;
 	}
 	
+	// Hardware-generated OSD is composited AFTER tape playback distortion.
+	// It must never be displaced by jitter, tracking or head switching.
+	if (osd_enabled > 0.5) {
+		float4 textPixel=osd_image.Sample(osdSampler,v_in.uv);
+		color.rgb=lerp(color.rgb,textPixel.rgb,textPixel.a);
+	}
 	return color;
 }
 

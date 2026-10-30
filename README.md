@@ -277,6 +277,34 @@ Be kind, please rewind. The VHS filter emulates many artifacts seen when playing
 - Pop Lines: amount
 - Head Swithing Noise: Primary noise thickness, amount, Secondary noise thickness, horizontal offset, and amount.
 
+### VCR / Camcorder On-Screen Display (optional)
+
+The original tape-distortion shader is preserved. **Display Mode defaults to Off**
+on new and saved sources, so no overlay is added until you explicitly enable it.
+
+- **Status for 5 s, then counter** (hardware-inspired default when enabled):
+  changing display style, tape transport, channel or speed starts the status
+  display for five seconds, then leaves the tape counter visible.
+- **Always show status:** persistent transport indicator, tape counter, speed,
+  and VCR channel; **Counter only:** shows just the counter.
+- **Character Generator:** VCR (PLAY / STOP / PAUSE / FF / REW / REC, CH, SP/LP/EP,
+  counter), or a more restrained **camcorder viewfinder** layout (transport,
+  speed and counter). No fake blinking REC circle or viewfinder crosshairs.
+- The text is rendered using a purpose-built **5×7 monochrome bitmap**
+  character set with a one-pixel black stroke, on a fixed **320×240** OSD
+  texture. Point sampling keeps the original hard glyph edges.
+- The VCR generates the OSD *after* the tape effects in the shader, so tape
+  wrinkles, jitter and head switching do not warp the OSD lettering.
+- The counter is **simulated**, advancing during PLAY/REC, holding during
+  STOP/PAUSE, and moving at an approximate 4× during FF/REW. It is
+  **not synchronized** to the source video timeline or to a physical VCR.
+  **Set Counter (seconds)** explicitly changes its start position.
+
+This is a generic, period-inspired hardware display—not an exact font dump
+or firmware emulation of a specific Sony, Panasonic or JVC model.
+Behavior reference: JVC SR-TS1U operating manual (OSD briefly shows status,
+then retains the counter): https://pro.jvc.com/pro/attributes/vhs/manual/srts1u.pdf.
+
 ![vhs filter preview](.github/assets/images/vhs.png)
 
 ## Bloom

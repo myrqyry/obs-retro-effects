@@ -17,11 +17,13 @@ void vhs_destroy(retro_effects_filter_data_t *filter)
 {
 	vhs_filter_data_t *data = filter->active_filter_data;
 	obs_enter_graphics();
-	if (data->effect_vhs) {
+	if (data->effect_vhs)
 		gs_effect_destroy(data->effect_vhs);
-	}
-
+	if (data->osd_texture)
+		gs_texture_destroy(data->osd_texture);
 	obs_leave_graphics();
+	bfree(data->osd_pixels);
+	data->osd_pixels = NULL;
 
 	bfree(filter->active_filter_data);
 	filter->active_filter_data = NULL;
@@ -46,12 +48,59 @@ void vhs_unset_settings(retro_effects_filter_data_t* filter)
 	obs_data_unset_user_value(settings, "vhs_head_switch_secondary_thickness");
 	obs_data_unset_user_value(settings, "vhs_head_switch_secondary_horiz_offset");
 	obs_data_unset_user_value(settings, "vhs_head_switch_secondary_vert_amount");
+	obs_data_unset_user_value(settings, "vhs_osd_mode");
+	obs_data_unset_user_value(settings, "vhs_osd_style");
+	obs_data_unset_user_value(settings, "vhs_osd_transport");
+	obs_data_unset_user_value(settings, "vhs_osd_speed");
+	obs_data_unset_user_value(settings, "vhs_osd_channel");
+	obs_data_unset_user_value(settings, "vhs_osd_start");
 	obs_data_release(settings);
 }
 
 void vhs_filter_update(retro_effects_filter_data_t *data, obs_data_t *settings)
 {
 	vhs_filter_data_t *filter = data->active_filter_data;
+
+	/* Device-generated OSD is independent of the upstream tape effects.
+	 * Only changes to device controls retrigger the five-second status. */
+	int mode = (int)obs_data_get_int(settings, "vhs_osd_mode");
+	int style = (int)obs_data_get_int(settings, "vhs_osd_style");
+	int transport = (int)obs_data_get_int(settings, "vhs_osd_transport");
+	int speed = (int)obs_data_get_int(settings, "vhs_osd_speed");
+	int channel = (int)obs_data_get_int(settings, "vhs_osd_channel");
+	int start = (int)obs_data_get_int(settings, "vhs_osd_start");
+	if (mode < 0 || mode > VHS_OSD_COUNTER)
+		mode = VHS_OSD_HIDDEN;
+	if (style < 0 || style > VHS_OSD_CAMCORDER)
+		style = VHS_OSD_VCR;
+	if (transport < 0 || transport > VHS_OSD_REC)
+		transport = VHS_OSD_STOP;
+	if (speed < 0 || speed > VHS_OSD_EP)
+		speed = VHS_OSD_SP;
+	if (channel < 1)
+		channel = 1;
+	if (channel > 125)
+		channel = 125;
+	if (start < 0)
+		start = 0;
+	if (start > 359999)
+		start = 359999;
+	bool changed = filter->osd.mode != mode || filter->osd.style != style || filter->osd.transport != transport ||
+		       filter->osd.speed != speed || filter->osd.channel != channel;
+	if (filter->osd_last_second != start) {
+		filter->osd_clock = (double)start;
+		filter->osd_last_second = start;
+		filter->osd_dirty = true;
+	}
+	if (changed) {
+		filter->osd_last_status_change = filter->local_time;
+		filter->osd_dirty = true;
+	}
+	filter->osd.mode = mode;
+	filter->osd.style = style;
+	filter->osd.transport = transport;
+	filter->osd.speed = speed;
+	filter->osd.channel = channel;
 
 	filter->tape_wrinkle_duration = (float)obs_data_get_double(settings, "vhs_wrinkle_duration");
 	filter->tape_wrinkle_size = (float)obs_data_get_double(settings, "vhs_wrinkle_size");
@@ -105,6 +154,12 @@ void vhs_filter_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "vhs_head_switch_secondary_thickness", 15.0);
 	obs_data_set_default_double(settings, "vhs_head_switch_secondary_horiz_offset", 30.0);
 	obs_data_set_default_double(settings, "vhs_head_switch_secondary_vert_amount", 5.0);
+	obs_data_set_default_int(settings, "vhs_osd_mode", VHS_OSD_HIDDEN);
+	obs_data_set_default_int(settings, "vhs_osd_style", VHS_OSD_VCR);
+	obs_data_set_default_int(settings, "vhs_osd_transport", VHS_OSD_PLAY);
+	obs_data_set_default_int(settings, "vhs_osd_speed", VHS_OSD_SP);
+	obs_data_set_default_int(settings, "vhs_osd_channel", 3);
+	obs_data_set_default_int(settings, "vhs_osd_start", 0);
 }
 
 void vhs_filter_properties(retro_effects_filter_data_t *data,
@@ -227,6 +282,41 @@ void vhs_filter_properties(retro_effects_filter_data_t *data,
 	obs_properties_add_group(props, "vhs_head_switching_group",
 				 obs_module_text("RetroEffects.VHS.HeadSwitch"),
 				 OBS_GROUP_NORMAL, head_switching);
+
+	/* Optional hardware character-generator display: Off by default to
+	 * preserve every existing source's upstream VHS look. */
+	obs_properties_t *osd = obs_properties_create();
+	obs_property_t *mode = obs_properties_add_list(osd, "vhs_osd_mode",
+						       obs_module_text("RetroEffects.VHS.OSD.Mode"),
+						       OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(mode, obs_module_text("RetroEffects.VHS.OSD.Off"), VHS_OSD_HIDDEN);
+	obs_property_list_add_int(mode, obs_module_text("RetroEffects.VHS.OSD.Timed"), VHS_OSD_TIMED);
+	obs_property_list_add_int(mode, obs_module_text("RetroEffects.VHS.OSD.Always"), VHS_OSD_ALWAYS);
+	obs_property_list_add_int(mode, obs_module_text("RetroEffects.VHS.OSD.Counter"), VHS_OSD_COUNTER);
+	obs_property_t *style = obs_properties_add_list(osd, "vhs_osd_style",
+							obs_module_text("RetroEffects.VHS.OSD.Style"),
+							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(style, obs_module_text("RetroEffects.VHS.OSD.VCR"), VHS_OSD_VCR);
+	obs_property_list_add_int(style, obs_module_text("RetroEffects.VHS.OSD.Camcorder"), VHS_OSD_CAMCORDER);
+	obs_property_t *transport = obs_properties_add_list(osd, "vhs_osd_transport",
+							    obs_module_text("RetroEffects.VHS.OSD.Transport"),
+							    OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	const char *state_labels[] = {"Stop", "Play", "Pause", "Rewind", "FastForward", "Record"};
+	for (int i = 0; i <= VHS_OSD_REC; ++i) {
+		char key[128];
+		snprintf(key, sizeof(key), "RetroEffects.VHS.OSD.%s", state_labels[i]);
+		obs_property_list_add_int(transport, obs_module_text(key), i);
+	}
+	obs_property_t *speed = obs_properties_add_list(osd, "vhs_osd_speed",
+							obs_module_text("RetroEffects.VHS.OSD.Speed"),
+							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(speed, "SP", VHS_OSD_SP);
+	obs_property_list_add_int(speed, "LP", VHS_OSD_LP);
+	obs_property_list_add_int(speed, "EP", VHS_OSD_EP);
+	obs_properties_add_int(osd, "vhs_osd_channel", obs_module_text("RetroEffects.VHS.OSD.Channel"), 1, 125, 1);
+	obs_properties_add_int(osd, "vhs_osd_start", obs_module_text("RetroEffects.VHS.OSD.Start"), 0, 359999, 1);
+	obs_properties_add_group(props, "vhs_osd_group", obs_module_text("RetroEffects.VHS.OSD.Group"),
+				 OBS_GROUP_NORMAL, osd);
 }
 
 void vhs_filter_video_render(retro_effects_filter_data_t *data)
@@ -303,6 +393,41 @@ void vhs_filter_video_render(retro_effects_filter_data_t *data)
 		gs_effect_set_float(filter->param_horizontal_offset,
 				    filter->current_jitter);
 	}
+	bool use_osd = filter->osd.mode != VHS_OSD_HIDDEN;
+	if (use_osd && filter->param_osd_image && filter->param_osd_enabled) {
+		if (!filter->osd_pixels)
+			filter->osd_pixels = bmalloc(VHS_OSD_BYTES);
+		if (!filter->osd_texture)
+			filter->osd_texture =
+				gs_texture_create(VHS_OSD_WIDTH, VHS_OSD_HEIGHT, GS_RGBA, 1, NULL, GS_DYNAMIC);
+		if (!filter->osd_pixels || !filter->osd_texture) {
+			blog(LOG_WARNING, "[obs-retro-effects] VHS OSD texture unavailable; skipping OSD");
+			use_osd = false;
+		} else {
+			bool full = vhs_osd_status_visible(filter->osd.mode,
+				filter->local_time-filter->osd_last_status_change);
+			if (full != filter->osd.full_status)
+				filter->osd_dirty = true;
+			filter->osd.full_status = full;
+			int sec = (int)filter->osd_clock;
+			if (sec != (int)filter->osd.seconds)
+				filter->osd_dirty = true;
+			filter->osd.seconds = filter->osd_clock;
+			if (filter->osd_dirty) {
+				if (vhs_osd_render(filter->osd_pixels, VHS_OSD_BYTES, &filter->osd)) {
+					gs_texture_set_image(filter->osd_texture, filter->osd_pixels, VHS_OSD_WIDTH * 4,
+							     false);
+					filter->osd_dirty = false;
+				} else {
+					use_osd = false;
+				}
+			}
+			if (use_osd)
+				gs_effect_set_texture(filter->param_osd_image, filter->osd_texture);
+		}
+	}
+	if (filter->param_osd_enabled)
+		gs_effect_set_float(filter->param_osd_enabled, use_osd ? 1.f : 0.f);
 	set_render_parameters();
 	set_blending_parameters();
 
@@ -340,6 +465,12 @@ void vhs_filter_video_tick(retro_effects_filter_data_t *data,
 	vhs_filter_data_t *filter = data->active_filter_data;
 	filter->time += seconds * 100.0f;
 	filter->local_time += seconds;
+	filter->osd_clock = vhs_osd_advance(filter->osd_clock, seconds, filter->osd.transport);
+	// Counter and timed displays dirty only when their visible values change.
+	if ((int)filter->osd_clock != (int)filter->osd.seconds ||
+	    (filter->osd.mode == VHS_OSD_TIMED && filter->local_time - filter->osd_last_status_change >= 5. &&
+	     filter->osd.full_status))
+		filter->osd_dirty = true;
 
 	//filter->local_time += filter->speed_factor * seconds;
 	if (filter->jitter) {
@@ -399,6 +530,8 @@ void vhs_filter_video_tick(retro_effects_filter_data_t *data,
 static void vhs_load_effect(vhs_filter_data_t *filter)
 {
 	filter->loading_effect = true;
+	filter->param_osd_image = NULL;
+	filter->param_osd_enabled = NULL;
 	if (filter->effect_vhs != NULL) {
 		obs_enter_graphics();
 		gs_effect_destroy(filter->effect_vhs);
@@ -466,6 +599,10 @@ static void vhs_load_effect(vhs_filter_data_t *filter)
 				filter->param_hs_secondary_thickness = param;
 			} else if (strcmp(info.name, "horizontal_offset") == 0) {
 				filter->param_horizontal_offset = param;
+			} else if (strcmp(info.name, "osd_image") == 0) {
+				filter->param_osd_image = param;
+			} else if (strcmp(info.name, "osd_enabled") == 0) {
+				filter->param_osd_enabled = param;
 			}
 		}
 	}

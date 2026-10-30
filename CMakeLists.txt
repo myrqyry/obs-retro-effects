@@ -16,7 +16,8 @@ add_library(${CMAKE_PROJECT_NAME} MODULE)
 find_package(libobs REQUIRED)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
 target_sources(${PROJECT_NAME} PRIVATE src/filters/dither-diffusion.c src/filters/dither-diffusion.h
- src/filters/dither-cpu-render.c src/filters/dither-cpu-render.h)
+ src/filters/dither-cpu-render.c src/filters/dither-cpu-render.h
+ src/filters/vhs-osd.c src/filters/vhs-osd.h)
 include(CTest)
 if(BUILD_TESTING)
   add_executable(test_dither_diffusion tests/test-dither-diffusion.c src/filters/dither-diffusion.c)
@@ -26,6 +27,9 @@ if(BUILD_TESTING)
   add_test(NAME dither_diffusion COMMAND test_dither_diffusion)
   add_executable(test_blue_noise_mask tests/test-blue-noise-mask.c)
   add_test(NAME blue_noise_mask COMMAND test_blue_noise_mask)
+  add_executable(test_vhs_osd tests/test-vhs-osd.c src/filters/vhs-osd.c)
+  add_test(NAME vhs_osd_unit COMMAND test_vhs_osd)
+
 endif()
 
 
@@ -55,6 +59,17 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
             $<TARGET_FILE:${PROJECT_NAME}>
             "${CMAKE_CURRENT_SOURCE_DIR}/data")
         set_tests_properties(dither_obs_render PROPERTIES TIMEOUT 45)
+        add_executable(test_vhs_obs tests/test-vhs-obs.cpp)
+        target_link_libraries(test_vhs_obs PRIVATE OBS::libobs)
+        add_test(NAME vhs_osd_obs_render
+          COMMAND ${CMAKE_COMMAND} -E env
+            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            ${XVFB_RUN} -a
+            $<TARGET_FILE:test_vhs_obs>
+            $<TARGET_FILE:${PROJECT_NAME}>
+            "${CMAKE_CURRENT_SOURCE_DIR}/data")
+        set_tests_properties(vhs_osd_obs_render PROPERTIES TIMEOUT 45)
   endif()
 endif()
 
