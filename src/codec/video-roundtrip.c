@@ -1,4 +1,4 @@
-#include "h263-roundtrip.h"
+#include "video-roundtrip.h"
 
 #include <libavcodec/avcodec.h>
 #include <libavutil/error.h>
@@ -7,7 +7,7 @@
 
 #include <stdlib.h>
 
-struct retro_h263 {
+struct retro_video {
 	AVCodecContext *encoder;
 	AVCodecContext *decoder;
 	AVFrame *input;
@@ -18,15 +18,22 @@ struct retro_h263 {
 	int64_t pts;
 	uint64_t bytes;
 	uint64_t packets;
+	uint64_t keyframes;
 };
 
-bool retro_h263_supported_size(int width, int height)
+bool retro_video_supported_size(enum retro_video_codec codec, int width, int height)
 {
-	return (width == 128 && height == 96) || (width == 176 && height == 144) || (width == 352 && height == 288) ||
-	       (width == 704 && height == 576) || (width == 1408 && height == 1152);
+	if (codec == RETRO_VIDEO_H263)
+		return (width == 128 && height == 96) || (width == 176 && height == 144) ||
+		       (width == 352 && height == 288) || (width == 704 && height == 576) ||
+		       (width == 1408 && height == 1152);
+	if (codec == RETRO_VIDEO_MPEG4_PART2)
+		return width >= 16 && height >= 16 && width <= 2048 && height <= 2048 && width % 16 == 0 &&
+		       height % 16 == 0;
+	return false;
 }
 
-void retro_h263_destroy(struct retro_h263 *ctx)
+void retro_video_destroy(struct retro_video *ctx)
 {
 	if (!ctx)
 		return;
@@ -40,19 +47,20 @@ void retro_h263_destroy(struct retro_h263 *ctx)
 	free(ctx);
 }
 
-struct retro_h263 *retro_h263_create(const struct retro_h263_options *options)
+struct retro_video *retro_video_create(const struct retro_video_options *options)
 {
-	if (!options || !retro_h263_supported_size(options->width, options->height) || options->fps < 1 ||
-	    options->fps > 60 || options->bitrate < 1000 || options->bitrate > 20000000 || options->gop_size < 1 ||
-	    options->gop_size > 1000)
+	if (!options || !retro_video_supported_size(options->codec, options->width, options->height) ||
+	    options->fps < 1 || options->fps > 60 || options->bitrate < 1000 || options->bitrate > 20000000 ||
+	    options->gop_size < 1 || options->gop_size > 1000)
 		return NULL;
 
-	const AVCodec *encoder = avcodec_find_encoder(AV_CODEC_ID_H263);
-	const AVCodec *decoder = avcodec_find_decoder(AV_CODEC_ID_H263);
+	const enum AVCodecID id = options->codec == RETRO_VIDEO_H263 ? AV_CODEC_ID_H263 : AV_CODEC_ID_MPEG4;
+	const AVCodec *encoder = avcodec_find_encoder(id);
+	const AVCodec *decoder = avcodec_find_decoder(id);
 	if (!encoder || !decoder)
 		return NULL;
 
-	struct retro_h263 *ctx = calloc(1, sizeof(*ctx));
+	struct retro_video *ctx = calloc(1, sizeof(*ctx));
 	if (!ctx)
 		return NULL;
 
@@ -72,6 +80,13 @@ struct retro_h263 *retro_h263_create(const struct retro_h263_options *options)
 	ctx->encoder->bit_rate = options->bitrate;
 	ctx->encoder->gop_size = options->gop_size;
 	ctx->encoder->max_b_frames = 0;
+	if (options->codec == RETRO_VIDEO_MPEG4_PART2) {
+		ctx->encoder->profile = FF_PROFILE_MPEG4_SIMPLE;
+		/* An explicit QCIF 4:3 sample aspect (12:11) in MPEG-4 VOL.
+		 * Larger square-pixel modes use 1:1. */
+		ctx->encoder->sample_aspect_ratio =
+			options->width == 176 && options->height == 144 ? (AVRational){12, 11} : (AVRational){1, 1};
+	}
 
 	if (avcodec_open2(ctx->encoder, encoder, NULL) < 0 || avcodec_open2(ctx->decoder, decoder, NULL) < 0)
 		goto error;
@@ -91,12 +106,12 @@ struct retro_h263 *retro_h263_create(const struct retro_h263_options *options)
 
 	return ctx;
 error:
-	retro_h263_destroy(ctx);
+	retro_video_destroy(ctx);
 	return NULL;
 }
 
-int retro_h263_process(struct retro_h263 *ctx, const uint8_t *rgba, int input_stride, uint8_t *decoded,
-		       int decoded_stride)
+int retro_video_process(struct retro_video *ctx, const uint8_t *rgba, int input_stride, uint8_t *decoded,
+			int decoded_stride)
 {
 	if (!ctx || !rgba || !decoded || input_stride < ctx->encoder->width * 4 ||
 	    decoded_stride < ctx->encoder->width * 4)
@@ -120,6 +135,8 @@ int retro_h263_process(struct retro_h263 *ctx, const uint8_t *rgba, int input_st
 	while ((code = avcodec_receive_packet(ctx->encoder, ctx->packet)) == 0) {
 		ctx->bytes += ctx->packet->size;
 		ctx->packets++;
+		if (ctx->packet->flags & AV_PKT_FLAG_KEY)
+			ctx->keyframes++;
 
 		if (avcodec_send_packet(ctx->decoder, ctx->packet) < 0) {
 			av_packet_unref(ctx->packet);
@@ -146,12 +163,32 @@ int retro_h263_process(struct retro_h263 *ctx, const uint8_t *rgba, int input_st
 	return code == AVERROR(EAGAIN) || code == AVERROR_EOF ? have_frame : -1;
 }
 
-uint64_t retro_h263_encoded_bytes(const struct retro_h263 *ctx)
+uint64_t retro_video_encoded_bytes(const struct retro_video *ctx)
 {
 	return ctx ? ctx->bytes : 0;
 }
 
-uint64_t retro_h263_encoded_packets(const struct retro_h263 *ctx)
+uint64_t retro_video_encoded_packets(const struct retro_video *ctx)
 {
 	return ctx ? ctx->packets : 0;
+}
+
+uint64_t retro_video_encoded_keyframes(const struct retro_video *ctx)
+{
+	return ctx ? ctx->keyframes : 0;
+}
+
+int retro_video_decoded_profile(const struct retro_video *video)
+{
+	return video ? video->decoder->profile : -1;
+}
+
+int retro_video_decoded_sar_num(const struct retro_video *video)
+{
+	return video ? video->decoder->sample_aspect_ratio.num : 0;
+}
+
+int retro_video_decoded_sar_den(const struct retro_video *video)
+{
+	return video ? video->decoder->sample_aspect_ratio.den : 0;
 }

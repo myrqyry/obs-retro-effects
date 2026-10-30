@@ -1,13 +1,14 @@
-#include "h263-obs.h"
-#include "h263-roundtrip.h"
+#include "video-obs.h"
+#include "video-roundtrip.h"
 
 #include "../obs-utils.h"
 
 #include <math.h>
 #include <string.h>
 
-struct retro_h263_obs {
-	struct retro_h263 *codec;
+struct retro_video_obs {
+	struct retro_video *codec;
+	enum retro_video_codec codec_type;
 	gs_texrender_t *capture;
 	gs_stagesurf_t *stage;
 	gs_texture_t *decoded_texture;
@@ -20,7 +21,7 @@ struct retro_h263_obs {
 static void render_scaled(gs_texture_t *source, gs_texrender_t *target, uint32_t target_w, uint32_t target_h,
 			  bool crop_for_encoder)
 {
-	/* QCIF (176x144) is displayed as 4:3 with its H.263 12:11 sample aspect.
+	/* QCIF (176x144) is displayed as 4:3 with a 12:11 sample aspect.
 	   Encode a centered 4:3 crop, not a stretched 16:9 image. When displaying
 	   the result, letterbox/pillarbox it back into OBS's source canvas. */
 	const float native_aspect =
@@ -68,22 +69,25 @@ static void render_scaled(gs_texture_t *source, gs_texrender_t *target, uint32_t
 	gs_blend_state_pop();
 }
 
-struct retro_h263_obs *retro_h263_obs_create(int width, int height, int fps, int bitrate, int gop)
+struct retro_video_obs *retro_video_obs_create(enum retro_video_codec codec, int width, int height, int fps,
+					       int bitrate, int gop)
 {
-	if (!retro_h263_supported_size(width, height))
+	if (!retro_video_supported_size(codec, width, height))
 		return NULL;
 
-	struct retro_h263_obs *state = bzalloc(sizeof(*state));
+	struct retro_video_obs *state = bzalloc(sizeof(*state));
+	state->codec_type = codec;
 	state->width = width;
 	state->height = height;
 	state->fps = fps;
 	state->bitrate = bitrate;
 	state->gop = gop;
-	state->codec = retro_h263_create(&(struct retro_h263_options){.width = width,
-								      .height = height,
-								      .fps = fps,
-								      .bitrate = bitrate,
-								      .gop_size = gop});
+	state->codec = retro_video_create(&(struct retro_video_options){.codec = codec,
+									.width = width,
+									.height = height,
+									.fps = fps,
+									.bitrate = bitrate,
+									.gop_size = gop});
 	if (!state->codec)
 		goto error;
 
@@ -98,15 +102,15 @@ struct retro_h263_obs *retro_h263_obs_create(int width, int height, int fps, int
 		goto error;
 	return state;
 error:
-	retro_h263_obs_destroy(state);
+	retro_video_obs_destroy(state);
 	return NULL;
 }
 
-void retro_h263_obs_destroy(struct retro_h263_obs *state)
+void retro_video_obs_destroy(struct retro_video_obs *state)
 {
 	if (!state)
 		return;
-	retro_h263_destroy(state->codec);
+	retro_video_destroy(state->codec);
 	obs_enter_graphics();
 	if (state->decoded_texture)
 		gs_texture_destroy(state->decoded_texture);
@@ -120,14 +124,15 @@ void retro_h263_obs_destroy(struct retro_h263_obs *state)
 	bfree(state);
 }
 
-bool retro_h263_obs_matches(const struct retro_h263_obs *state, int width, int height, int fps, int bitrate, int gop)
+bool retro_video_obs_matches(const struct retro_video_obs *state, enum retro_video_codec codec, int width, int height,
+			     int fps, int bitrate, int gop)
 {
-	return state && state->width == width && state->height == height && state->fps == fps &&
-	       state->bitrate == bitrate && state->gop == gop;
+	return state && state->codec_type == codec && state->width == width && state->height == height &&
+	       state->fps == fps && state->bitrate == bitrate && state->gop == gop;
 }
 
-bool retro_h263_obs_render(struct retro_h263_obs *state, gs_texrender_t *input, gs_texrender_t *output,
-			   uint32_t output_width, uint32_t output_height, bool encode_frame)
+bool retro_video_obs_render(struct retro_video_obs *state, gs_texrender_t *input, gs_texrender_t *output,
+			    uint32_t output_width, uint32_t output_height, bool encode_frame)
 {
 	if (!state || !input || !output || !output_width || !output_height)
 		return false;
@@ -150,8 +155,8 @@ bool retro_h263_obs_render(struct retro_h263_obs *state, gs_texrender_t *input, 
 			memcpy(state->input_pixels + (size_t)y * state->width * 4, mapped + (size_t)y * linesize,
 			       (size_t)state->width * 4);
 		gs_stagesurface_unmap(state->stage);
-		int result = retro_h263_process(state->codec, state->input_pixels, state->width * 4,
-						state->output_pixels, state->width * 4);
+		int result = retro_video_process(state->codec, state->input_pixels, state->width * 4,
+						 state->output_pixels, state->width * 4);
 		if (result < 0)
 			return false;
 		if (result == 1) {

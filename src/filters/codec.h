@@ -5,10 +5,12 @@
 
 #define CODEC_TYPE_RPZA 1
 #define CODEC_TYPE_RPZA_LABEL "RetroEffects.Codec.RPZA"
-#ifdef ENABLE_H263_CODEC
+#ifdef ENABLE_VIDEO_CODECS
 #define CODEC_TYPE_H263 2
 #define CODEC_TYPE_H263_LABEL "RetroEffects.Codec.H263"
-struct retro_h263_obs;
+#define CODEC_TYPE_MPEG4_PART2 3
+#define CODEC_TYPE_MPEG4_PART2_LABEL "RetroEffects.Codec.MPEG4Part2"
+struct retro_video_obs;
 #endif
 
 struct codec_filter_data;
@@ -58,27 +60,24 @@ struct codec_filter_data {
 	bool reload_effect;
 
 	float time_since_keyframe;
-#ifdef ENABLE_H263_CODEC
-	struct retro_h263_obs *h263;
-	int h263_fps, h263_bitrate, h263_gop;
-	float h263_elapsed;
-	bool h263_due;
+#ifdef ENABLE_VIDEO_CODECS
+	struct retro_video_obs *video;
+	int video_fps, video_bitrate, video_gop;
+	float video_elapsed;
+	bool video_due;
 #endif
 };
 
 extern void codec_create(retro_effects_filter_data_t *filter);
 extern void codec_destroy(retro_effects_filter_data_t *filter);
-extern void codec_unset_settings(retro_effects_filter_data_t* filter);
+extern void codec_unset_settings(retro_effects_filter_data_t *filter);
 
 extern void codec_filter_video_tick(retro_effects_filter_data_t *data, float seconds);
 extern void codec_filter_video_render(retro_effects_filter_data_t *data);
-extern void codec_filter_properties(retro_effects_filter_data_t *data,
-					obs_properties_t *props);
+extern void codec_filter_properties(retro_effects_filter_data_t *data, obs_properties_t *props);
 extern void codec_filter_defaults(obs_data_t *settings);
-extern void codec_filter_update(retro_effects_filter_data_t *data,
-				    obs_data_t *settings);
+extern void codec_filter_update(retro_effects_filter_data_t *data, obs_data_t *settings);
 static void codec_set_functions(retro_effects_filter_data_t *filter);
 static void codec_load_effect(codec_filter_data_t *filter);
 
-static bool codec_type_modified(obs_properties_t *props, obs_property_t *p,
-				 obs_data_t *settings);
+static bool codec_type_modified(obs_properties_t *props, obs_property_t *p, obs_data_t *settings);

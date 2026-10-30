@@ -5,6 +5,7 @@
 #include <graphics/graphics.h>
 #include <graphics/vec2.h>
 #include <chrono>
+#include <cstring>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -92,11 +93,14 @@ static obs_source_info input_info = {.id = "h263_test_input",
 				     .video_render = input_render};
 int main(int argc, char **argv)
 {
-	if (argc != 3) {
-		std::fprintf(stderr, "Usage: %s <plugin.so> <data-dir>\n", argv[0]);
+	if (argc != 4 || (std::strcmp(argv[3], "h263") != 0 && std::strcmp(argv[3], "mpeg4") != 0)) {
+		std::fprintf(stderr, "Usage: %s <plugin.so> <data-dir> <h263|mpeg4>\n", argv[0]);
 		return 2;
 	}
 	setbuf(stdout, nullptr);
+	const bool use_mpeg4 = std::strcmp(argv[3], "mpeg4") == 0;
+	const int selected_codec = use_mpeg4 ? 3 : 2;
+	std::printf("VIDEO_SELECTED_CODEC %s\n", argv[3]);
 	if (!obs_startup("en-US", nullptr, nullptr))
 		return 3;
 	obs_video_info info{};
@@ -122,10 +126,12 @@ int main(int argc, char **argv)
 	auto *source = obs_source_create("h263_test_input", "h263-test-source", nullptr, nullptr);
 	auto *settings = obs_data_create();
 	obs_data_set_int(settings, "filter_type", 10);
-	obs_data_set_int(settings, "codec_type", 2);
-	obs_data_set_int(settings, "codec_h263_fps", 10);
-	obs_data_set_int(settings, "codec_h263_bitrate", 64000);
-	obs_data_set_int(settings, "codec_h263_gop", 10);
+	obs_data_set_int(settings, "codec_type", selected_codec);
+	// Legacy H.263-only builds stored these names. Verify migration even if
+	// the selected mode is MPEG-4 Visual.
+	obs_data_set_int(settings, "codec_h263_fps", 12);
+	obs_data_set_int(settings, "codec_h263_bitrate", 68000);
+	obs_data_set_int(settings, "codec_h263_gop", 12);
 	auto *filter = obs_source_create("obs_retro_effects_filter", "h263-filter", settings, nullptr);
 	obs_data_release(settings);
 	if (!source || !filter) {
@@ -164,7 +170,7 @@ int main(int argc, char **argv)
 					if (first_red < 0)
 						first_red = middle[0];
 					last_red = middle[0];
-					std::printf("H263_GPU sample=%d center=%d,%d,%d,%d bar=%d,%d,%d,%d\n", attempt,
+					std::printf("VIDEO_GPU sample=%d center=%d,%d,%d,%d bar=%d,%d,%d,%d\n", attempt,
 						    middle[0], middle[1], middle[2], middle[3], bar[0], bar[1], bar[2],
 						    bar[3]);
 					gs_stagesurface_unmap(stage);
@@ -176,25 +182,42 @@ int main(int argc, char **argv)
 			gs_texrender_destroy(target);
 		obs_leave_graphics();
 	}
+	auto *migrated_settings = obs_source_get_settings(filter);
+	bool migrated = migrated_settings && obs_data_get_int(migrated_settings, "codec_video_fps") == 12 &&
+			obs_data_get_int(migrated_settings, "codec_video_bitrate") == 68000 &&
+			obs_data_get_int(migrated_settings, "codec_video_gop") == 12;
+	printf("VIDEO_SETTINGS_MIGRATED codec=%s pass=%d\n", argv[3], int(migrated));
+	if (migrated_settings)
+		obs_data_release(migrated_settings);
+	if (!migrated)
+		return 10;
 	obs_properties_t *properties = obs_source_properties(filter);
 	if (properties) {
 		obs_property_t *prop = obs_properties_first(properties);
 		while (prop) {
-			printf("H263_GUI_PROPERTY name=%s visible=%d\n", obs_property_name(prop),
+			printf("VIDEO_GUI_PROPERTY name=%s visible=%d\n", obs_property_name(prop),
 			       int(obs_property_visible(prop)));
 			if (!obs_property_next(&prop))
 				break;
 		}
 	}
 	obs_property_t *codec_choice = properties ? obs_properties_get(properties, "codec_type") : nullptr;
-	obs_property_t *h263_options = properties ? obs_properties_get(properties, "codec_h263_options") : nullptr;
+	obs_property_t *video_options = properties ? obs_properties_get(properties, "codec_video_options") : nullptr;
 	bool codec_exposed = false;
+	bool h263_exposed = false, mpeg4_exposed = false;
 	if (codec_choice)
-		for (size_t i = 0; i < obs_property_list_item_count(codec_choice); ++i)
-			if (obs_property_list_item_int(codec_choice, i) == 2)
+		for (size_t i = 0; i < obs_property_list_item_count(codec_choice); ++i) {
+			long long codec = obs_property_list_item_int(codec_choice, i);
+			if (codec == selected_codec)
 				codec_exposed = true;
-	bool controls_ok = codec_exposed && h263_options && obs_property_visible(h263_options);
-	printf("H263_GUI_CONFIG enabled=%d controls_visible=%d\n", int(codec_exposed), int(controls_ok));
+			if (codec == 2)
+				h263_exposed = true;
+			if (codec == 3)
+				mpeg4_exposed = true;
+		}
+	codec_exposed = codec_exposed && h263_exposed && mpeg4_exposed;
+	bool controls_ok = codec_exposed && video_options && obs_property_visible(video_options);
+	printf("VIDEO_GUI_CONFIG enabled=%d controls_visible=%d\n", int(codec_exposed), int(controls_ok));
 	if (properties)
 		obs_properties_destroy(properties);
 	if (!controls_ok)
@@ -208,10 +231,10 @@ int main(int argc, char **argv)
 	obs_data_release(rpza_settings);
 	auto *rpza_properties = obs_source_properties(filter);
 	auto *rpza_controls = rpza_properties ? obs_properties_get(rpza_properties, "codec_px_scale") : nullptr;
-	auto *h263_hidden = rpza_properties ? obs_properties_get(rpza_properties, "codec_h263_options") : nullptr;
+	auto *h263_hidden = rpza_properties ? obs_properties_get(rpza_properties, "codec_video_options") : nullptr;
 	bool rpza_restored = rpza_controls && h263_hidden && obs_property_visible(rpza_controls) &&
 			     !obs_property_visible(h263_hidden);
-	printf("H263_RPZA_SWITCH restored=%d\n", int(rpza_restored));
+	printf("VIDEO_RPZA_SWITCH restored=%d\n", int(rpza_restored));
 	if (rpza_properties)
 		obs_properties_destroy(rpza_properties);
 	if (!rpza_restored)
@@ -222,10 +245,10 @@ int main(int argc, char **argv)
 	obs_source_release(source);
 	// OBS owns the loaded module until shutdown.
 	obs_shutdown();
-	printf("H263_GPU_RESULT nonzero=%d center_sum=%d bar_sum=%d first_red=%d last_red=%d\n", nonzero_frames,
+	printf("VIDEO_GPU_RESULT nonzero=%d center_sum=%d bar_sum=%d first_red=%d last_red=%d\n", nonzero_frames,
 	       center_luma, bar_luma, first_red, last_red);
 	if (nonzero_frames < 2 || bar_luma > 20 || first_red < 0 || std::abs(last_red - first_red) < 8)
 		return 7;
-	printf("H263_OBS_RENDER_PASS\n");
+	printf("VIDEO_OBS_RENDER_PASS codec=%s\n", argv[3]);
 	return 0;
 }
