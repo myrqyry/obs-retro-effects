@@ -152,14 +152,35 @@ These are different algorithms, not random-noise/block-edge shaders.
 | MPEG-1 | 352×288, 25 fps | YUV 4:2:0 | PAL Video CD-era |
 | Motion JPEG | 320×240, 15 fps | Full-range YUV 4:2:2 | Early digital cameras |
 
-These dimensions and bitrates are **illustrative starter profiles**,
-not guaranteed defaults for every historical device. Choosing a codec
-loads its starter profile; you can adjust frame rate, requested bitrate,
-and GOP. **Some older encoders do not honor bitrate targets**; the
-actual bitstream size depends on the algorithm and input images.
-For intraframe codecs, GOP has no meaningful temporal compression effect.
-MPEG-1 uses no B-frames in this low-latency implementation, so
-the PAL resolution/bitrate do **not** imply VCD compliance.
+These dimensions are **illustrative starter profiles**, not claims about
+every historical device. Each codec now has its own remembered controls,
+rather than sharing and overwriting one generic panel:
+
+| Codec | Available controls and practical UI ranges |
+| --- | --- |
+| H.263 | 5–25 fps, 16–256 kbps target, 1–120 frame GOP |
+| MPEG-4 Part 2 | 5–30 fps, 16–512 kbps target, 1–180 frame GOP |
+| Cinepak | 5–20 fps, 0–5 codebook refinement passes |
+| Sorenson Video 1 | 5–30 fps, motion estimation (Zero / EPZS / X1) |
+| Microsoft Video 1 | 5–30 fps; fixed RGB555 video |
+| Sorenson Spark | 5–30 fps, 32–1000 kbps target, 1–180 frame GOP |
+| MPEG-1 | 5/10/12/15/24/25/30 fps only, 150–2000 kbps target, 1–30 frame GOP |
+| Motion JPEG | 5–30 fps, actual JPEG quantizer 2–31 (2 = higher quality) |
+
+The values are bounded to the current experimental capture formats, not
+the maximum limits of the underlying video standards. Bitrates are shown
+in **kbps** rather than raw bits/second; they are still only encoder targets.
+Cinepak, SVQ1, Microsoft Video 1, and Motion JPEG instead expose controls
+that FFmpeg actually implements. GOP is absent for independent-frame codecs.
+The Cinepak, SVQ1 and JPEG options connect directly to their real encoders.
+The encoder's output size still depends on scene complexity, and certain
+old formats ignore bitrate settings entirely.
+
+Settings from an earlier version with shared H.263 controls are migrated
+once to their original codec, not copied into every other mode. Switching
+back and forth preserves each codec's settings. MPEG-1 uses no B-frames
+in this low-latency implementation; its PAL dimensions and bitrate do
+**not** imply fully VCD-compliant output.
 
 The plugin centers a 4:3 crop from widescreen input, compresses at the
 codec's capture resolution and displays the decoded result in the original

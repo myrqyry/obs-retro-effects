@@ -1,10 +1,16 @@
 #include "codec.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "../obs-utils.h"
 #ifdef ENABLE_VIDEO_CODECS
 #include "../codec/video-obs.h"
 #endif
 
+#ifdef ENABLE_VIDEO_CODECS
+static void codec_clear_real_settings(obs_data_t *settings);
+#endif
 void codec_create(retro_effects_filter_data_t *filter)
 {
 	codec_filter_data_t *data = bzalloc(sizeof(codec_filter_data_t));
@@ -61,6 +67,8 @@ void codec_unset_settings(retro_effects_filter_data_t *filter)
 	obs_data_unset_user_value(settings, "codec_h263_bitrate");
 	obs_data_unset_user_value(settings, "codec_video_gop");
 	obs_data_unset_user_value(settings, "codec_h263_gop");
+	codec_clear_real_settings(settings);
+	obs_data_unset_user_value(settings, "codec_real_legacy_owner");
 #endif
 	obs_data_release(settings);
 }
@@ -96,34 +104,93 @@ static enum retro_video_codec codec_video_kind(uint32_t type)
 	}
 }
 
-/* First use: preserve explicit settings and older experimental H.263 values.
- * A user's manual selection of another codec loads its starting profile. */
-static void codec_video_settings(obs_data_t *settings, enum retro_video_codec kind, bool change_codec)
+/* The limits are practical starting ranges for the tested input sizes, not
+ * universal limitations of the bitstream standards. A zero minimum means
+ * that option is unsupported by this particular FFmpeg encoder. */
+struct codec_ui_profile {
+	enum retro_video_codec kind;
+	const char *slug;
+	int fps_min, fps_max;
+	int kbps_min, kbps_max;
+	int gop_min, gop_max;
+};
+static const struct codec_ui_profile real_codecs[] = {
+	{RETRO_VIDEO_H263, "h263", 5, 25, 16, 256, 1, 120},
+	{RETRO_VIDEO_MPEG4_PART2, "mpeg4", 5, 30, 16, 512, 1, 180},
+	{RETRO_VIDEO_CINEPAK, "cinepak", 5, 20, 0, 0, 0, 0},
+	{RETRO_VIDEO_SVQ1, "svq1", 5, 30, 0, 0, 0, 0},
+	{RETRO_VIDEO_MSVIDEO1, "msvideo1", 5, 30, 0, 0, 0, 0},
+	{RETRO_VIDEO_FLV1, "flv1", 5, 30, 32, 1000, 1, 180},
+	{RETRO_VIDEO_MPEG1, "mpeg1", 5, 30, 150, 2000, 1, 30},
+	{RETRO_VIDEO_MJPEG, "mjpeg", 5, 30, 0, 0, 0, 0},
+};
+static const struct codec_ui_profile *codec_profile(enum retro_video_codec kind)
 {
-	if (!kind)
-		return;
-	struct retro_video_options preset = retro_video_default_options(kind);
-	struct {
-		const char *current, *legacy;
-		int value;
-	} names[] = {{"codec_video_fps", "codec_h263_fps", preset.fps},
-		     {"codec_video_bitrate", "codec_h263_bitrate", preset.bitrate},
-		     {"codec_video_gop", "codec_h263_gop", preset.gop_size}};
-	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
-		if (!change_codec && obs_data_has_user_value(settings, names[i].current))
-			continue;
-		if (!change_codec && obs_data_has_user_value(settings, names[i].legacy))
-			obs_data_set_int(settings, names[i].current, obs_data_get_int(settings, names[i].legacy));
-		else
-			obs_data_set_int(settings, names[i].current, names[i].value);
-	}
+	for (size_t i = 0; i < sizeof(real_codecs) / sizeof(real_codecs[0]); ++i)
+		if (real_codecs[i].kind == kind)
+			return &real_codecs[i];
+	return NULL;
+}
+static void codec_key(char *buffer, size_t length, const struct codec_ui_profile *profile, const char *suffix)
+{
+	snprintf(buffer, length, "codec_real_%s_%s", profile->slug, suffix);
+}
+static void codec_clear_real_settings(obs_data_t *settings)
+{
+	const char *suffixes[] = {"fps", "kbps", "gop", "passes", "motion", "quantizer"};
+	for (size_t i = 0; i < sizeof(real_codecs) / sizeof(real_codecs[0]); ++i)
+		for (size_t k = 0; k < sizeof(suffixes) / sizeof(suffixes[0]); ++k) {
+			char key[80];
+			codec_key(key, sizeof(key), &real_codecs[i], suffixes[k]);
+			obs_data_unset_user_value(settings, key);
+		}
+}
+static int codec_clamp(int value, int lo, int hi)
+{
+	return value < lo ? lo : value > hi ? hi : value;
+}
+/* MPEG-1's supported framerates are discrete. Restrict the UI to the
+ * integer subset explicitly supported by the selected encoder. */
+static int codec_safe_fps(enum retro_video_codec kind, int value)
+{
+	if (kind != RETRO_VIDEO_MPEG1)
+		return value;
+	const int valid[] = {5, 10, 12, 15, 24, 25, 30};
+	int best = valid[0];
+	for (size_t i = 1; i < sizeof(valid) / sizeof(valid[0]); ++i)
+		if (abs(valid[i] - value) < abs(best - value))
+			best = valid[i];
+	return best;
 }
 
-static int codec_video_setting(obs_data_t *settings, const char *current, const char *legacy)
+/* One-time migration of old shared settings into the SELECTED codec only.
+ * All subsequent edits are isolated under this codec's own keys. */
+static int codec_read_setting(obs_data_t *settings, const struct codec_ui_profile *profile, const char *suffix,
+			      const char *old_key, const char *older_key, int fallback, int lo, int hi, bool old_bps)
 {
-	if (!obs_data_has_user_value(settings, current) && obs_data_has_user_value(settings, legacy))
-		obs_data_set_int(settings, current, obs_data_get_int(settings, legacy));
-	return (int)obs_data_get_int(settings, current);
+	char key[80];
+	codec_key(key, sizeof(key), profile, suffix);
+	if (!obs_data_has_user_value(settings, key)) {
+		int migrated = fallback;
+		if (old_key && obs_data_has_user_value(settings, old_key))
+			migrated = (int)obs_data_get_int(settings, old_key);
+		else if (older_key && obs_data_has_user_value(settings, older_key))
+			migrated = (int)obs_data_get_int(settings, older_key);
+		if (old_bps && migrated != fallback)
+			migrated = (migrated + 500) / 1000;
+		obs_data_set_int(settings, key, codec_clamp(migrated, lo, hi));
+	}
+	int value = codec_clamp((int)obs_data_get_int(settings, key), lo, hi);
+	if (strcmp(suffix, "fps") == 0)
+		value = codec_safe_fps(profile->kind, value);
+	if (value != obs_data_get_int(settings, key))
+		obs_data_set_int(settings, key, value);
+	return value;
+}
+static int codec_read_extra(obs_data_t *settings, const struct codec_ui_profile *profile, const char *suffix,
+			    int fallback, int low, int high)
+{
+	return codec_read_setting(settings, profile, suffix, NULL, NULL, fallback, low, high, false);
 }
 #endif
 
@@ -140,10 +207,46 @@ void codec_filter_update(retro_effects_filter_data_t *data, obs_data_t *settings
 	filter->rpza_threshold_solid = (float)obs_data_get_double(settings, "codec_rpza_threshold_solid");
 	filter->rpza_threshold_gradient = (float)obs_data_get_double(settings, "codec_rpza_threshold_gradient");
 #ifdef ENABLE_VIDEO_CODECS
-	codec_video_settings(settings, codec_video_kind(filter->codec_type), false);
-	filter->video_fps = codec_video_setting(settings, "codec_video_fps", "codec_h263_fps");
-	filter->video_bitrate = codec_video_setting(settings, "codec_video_bitrate", "codec_h263_bitrate");
-	filter->video_gop = codec_video_setting(settings, "codec_video_gop", "codec_h263_gop");
+	const struct codec_ui_profile *profile = codec_profile(codec_video_kind(filter->codec_type));
+	/* The old globally shared settings can represent only one codec. Mark
+	 * their original owner once, so other modes start with honest defaults.
+	 * When the filter currently uses RPZA, treat stale video settings as
+	 * H.263-era values instead of imposing them on a new codec. */
+	if (!obs_data_has_user_value(settings, "codec_real_legacy_owner") &&
+	    (obs_data_has_user_value(settings, "codec_video_fps") ||
+	     obs_data_has_user_value(settings, "codec_video_bitrate") ||
+	     obs_data_has_user_value(settings, "codec_h263_fps"))) {
+		obs_data_set_int(settings, "codec_real_legacy_owner", profile ? profile->kind : RETRO_VIDEO_H263);
+	}
+	if (profile) {
+		const bool legacy = obs_data_get_int(settings, "codec_real_legacy_owner") == profile->kind;
+		const struct retro_video_options defaults = retro_video_default_options(profile->kind);
+		filter->video_fps = codec_read_setting(settings, profile, "fps", legacy ? "codec_video_fps" : NULL,
+						       legacy ? "codec_h263_fps" : NULL, defaults.fps, profile->fps_min,
+						       profile->fps_max, false);
+		if (profile->kbps_min) {
+			int kbps = codec_read_setting(settings, profile, "kbps", legacy ? "codec_video_bitrate" : NULL,
+						      legacy ? "codec_h263_bitrate" : NULL, defaults.bitrate / 1000,
+						      profile->kbps_min, profile->kbps_max, true);
+			filter->video_bitrate = kbps * 1000;
+		} else {
+			filter->video_bitrate = defaults.bitrate;
+		}
+		filter->video_gop = profile->gop_min
+					    ? codec_read_setting(settings, profile, "gop",
+								 legacy ? "codec_video_gop" : NULL,
+								 legacy ? "codec_h263_gop" : NULL, defaults.gop_size,
+								 profile->gop_min, profile->gop_max, false)
+					    : defaults.gop_size;
+		filter->video_cinepak_passes = profile->kind == RETRO_VIDEO_CINEPAK
+						       ? codec_read_extra(settings, profile, "passes", 2, 0, 5)
+						       : 0;
+		filter->video_svq1_motion =
+			profile->kind == RETRO_VIDEO_SVQ1 ? codec_read_extra(settings, profile, "motion", 1, 0, 2) : 0;
+		filter->video_mjpeg_quantizer = profile->kind == RETRO_VIDEO_MJPEG
+							? codec_read_extra(settings, profile, "quantizer", 5, 2, 31)
+							: 0;
+	}
 #endif
 
 	if (!filter->custom_thresholds) {
@@ -173,23 +276,134 @@ void codec_filter_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, "codec_video_fps", 10);
 	obs_data_set_default_int(settings, "codec_video_bitrate", 64000);
 	obs_data_set_default_int(settings, "codec_video_gop", 30);
+	for (size_t i = 0; i < sizeof(real_codecs) / sizeof(real_codecs[0]); ++i) {
+		const struct codec_ui_profile *profile = &real_codecs[i];
+		struct retro_video_options defaults = retro_video_default_options(profile->kind);
+		char key[80];
+		codec_key(key, sizeof(key), profile, "fps");
+		obs_data_set_default_int(settings, key, defaults.fps);
+		if (profile->kbps_min) {
+			codec_key(key, sizeof(key), profile, "kbps");
+			obs_data_set_default_int(settings, key, defaults.bitrate / 1000);
+		}
+		if (profile->gop_min) {
+			codec_key(key, sizeof(key), profile, "gop");
+			obs_data_set_default_int(settings, key, defaults.gop_size);
+		}
+	}
+	obs_data_set_default_int(settings, "codec_real_cinepak_passes", 2);
+	obs_data_set_default_int(settings, "codec_real_svq1_motion", 1);
+	obs_data_set_default_int(settings, "codec_real_mjpeg_quantizer", 5);
 #endif
 }
 
 #ifdef ENABLE_VIDEO_CODECS
-static void codec_set_visibility(obs_properties_t *props, bool real_video)
+static const char *codec_group_key(enum retro_video_codec kind)
+{
+	const struct codec_ui_profile *profile = codec_profile(kind);
+	if (!profile)
+		return NULL;
+	/* Group keys use the same stable slug as the dedicated settings. */
+	static const char *names[] = {"codec_h263_controls",  "codec_mpeg4_controls",    "codec_cinepak_controls",
+				      "codec_svq1_controls",  "codec_msvideo1_controls", "codec_flv1_controls",
+				      "codec_mpeg1_controls", "codec_mjpeg_controls"};
+	return names[kind - RETRO_VIDEO_H263];
+}
+static void codec_set_visibility(obs_properties_t *props, enum retro_video_codec kind)
 {
 	const char *rpza_keys[] = {"codec_px_scale", "codec_colors_per_channel", "codec_quality",
 				   "codec_keyframe_interval", "codec_custom_thresholds"};
 	for (size_t i = 0; i < sizeof(rpza_keys) / sizeof(rpza_keys[0]); ++i) {
 		obs_property_t *p = obs_properties_get(props, rpza_keys[i]);
 		if (p)
-			obs_property_set_visible(p, !real_video);
+			obs_property_set_visible(p, kind == 0);
 	}
-	obs_property_t *video_group = obs_properties_get(props, "codec_video_options");
-	if (video_group)
-		obs_property_set_visible(video_group, real_video);
+	for (size_t i = 0; i < sizeof(real_codecs) / sizeof(real_codecs[0]); ++i) {
+		obs_property_t *group = obs_properties_get(props, codec_group_key(real_codecs[i].kind));
+		if (group)
+			obs_property_set_visible(group, real_codecs[i].kind == kind);
+	}
 }
+static const char *codec_group_label(enum retro_video_codec kind)
+{
+	switch (kind) {
+	case RETRO_VIDEO_H263:
+		return CODEC_TYPE_H263_LABEL;
+	case RETRO_VIDEO_MPEG4_PART2:
+		return CODEC_TYPE_MPEG4_PART2_LABEL;
+	case RETRO_VIDEO_CINEPAK:
+		return CODEC_TYPE_CINEPAK_LABEL;
+	case RETRO_VIDEO_SVQ1:
+		return CODEC_TYPE_SVQ1_LABEL;
+	case RETRO_VIDEO_MSVIDEO1:
+		return CODEC_TYPE_MSVIDEO1_LABEL;
+	case RETRO_VIDEO_FLV1:
+		return CODEC_TYPE_FLV1_LABEL;
+	case RETRO_VIDEO_MPEG1:
+		return CODEC_TYPE_MPEG1_LABEL;
+	case RETRO_VIDEO_MJPEG:
+		return CODEC_TYPE_MJPEG_LABEL;
+	default:
+		return CODEC_TYPE_H263_LABEL;
+	}
+}
+static void codec_add_real_controls(obs_properties_t *props, const struct codec_ui_profile *profile)
+{
+	char key[80];
+	obs_properties_t *group = obs_properties_create();
+	codec_key(key, sizeof(key), profile, "fps");
+	if (profile->kind == RETRO_VIDEO_MPEG1) {
+		obs_property_t *fps = obs_properties_add_list(group, key,
+							      obs_module_text("RetroEffects.Codec.Video.Fps"),
+							      OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+		const int valid[] = {5, 10, 12, 15, 24, 25, 30};
+		for (size_t i = 0; i < sizeof(valid) / sizeof(valid[0]); ++i) {
+			char label[10];
+			snprintf(label, sizeof(label), "%d fps", valid[i]);
+			obs_property_list_add_int(fps, label, valid[i]);
+		}
+	} else {
+		obs_properties_add_int_slider(group, key, obs_module_text("RetroEffects.Codec.Video.Fps"),
+					      profile->fps_min, profile->fps_max, 1);
+	}
+	if (profile->kbps_min) {
+		codec_key(key, sizeof(key), profile, "kbps");
+		obs_properties_add_int_slider(group, key, obs_module_text("RetroEffects.Codec.Video.BitrateKbps"),
+					      profile->kbps_min, profile->kbps_max, profile->kbps_max <= 512 ? 1 : 5);
+	}
+	if (profile->gop_min) {
+		codec_key(key, sizeof(key), profile, "gop");
+		obs_properties_add_int_slider(group, key, obs_module_text("RetroEffects.Codec.Video.Gop"),
+					      profile->gop_min, profile->gop_max, 1);
+	}
+	switch (profile->kind) {
+	case RETRO_VIDEO_CINEPAK:
+		codec_key(key, sizeof(key), profile, "passes");
+		obs_properties_add_int_slider(group, key, obs_module_text("RetroEffects.Codec.Cinepak.Passes"), 0, 5,
+					      1);
+		break;
+	case RETRO_VIDEO_SVQ1: {
+		codec_key(key, sizeof(key), profile, "motion");
+		obs_property_t *motion = obs_properties_add_list(group, key,
+								 obs_module_text("RetroEffects.Codec.SVQ1.Motion"),
+								 OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+		obs_property_list_add_int(motion, "Zero motion", 0);
+		obs_property_list_add_int(motion, "EPZS", 1);
+		obs_property_list_add_int(motion, "X1", 2);
+		break;
+	}
+	case RETRO_VIDEO_MJPEG:
+		codec_key(key, sizeof(key), profile, "quantizer");
+		obs_properties_add_int_slider(group, key, obs_module_text("RetroEffects.Codec.MJPEG.Quantizer"), 2, 31,
+					      1);
+		break;
+	default:
+		break;
+	}
+	obs_properties_add_group(props, codec_group_key(profile->kind),
+				 obs_module_text(codec_group_label(profile->kind)), OBS_GROUP_NORMAL, group);
+}
+
 #endif
 
 void codec_filter_properties(retro_effects_filter_data_t *data, obs_properties_t *props)
@@ -238,18 +452,13 @@ void codec_filter_properties(retro_effects_filter_data_t *data, obs_properties_t
 				 obs_module_text("RetroEffects.Codec.CustomThresholds"), OBS_GROUP_CHECKABLE,
 				 thresholds_group);
 #ifdef ENABLE_VIDEO_CODECS
-	obs_properties_t *h263_options = obs_properties_create();
-	obs_properties_add_int_slider(h263_options, "codec_video_fps", obs_module_text("RetroEffects.Codec.Video.Fps"),
-				      5, 25, 1);
-	obs_properties_add_int_slider(h263_options, "codec_video_bitrate",
-				      obs_module_text("RetroEffects.Codec.Video.Bitrate"), 8000, 3000000, 1000);
-	obs_properties_add_int_slider(h263_options, "codec_video_gop", obs_module_text("RetroEffects.Codec.Video.Gop"),
-				      1, 300, 1);
-	obs_properties_add_group(props, "codec_video_options", obs_module_text("RetroEffects.Codec.Video.Options"),
-				 OBS_GROUP_NORMAL, h263_options);
-	codec_set_visibility(
-		props, data && data->active_filter_data &&
-			       codec_video_kind(((codec_filter_data_t *)data->active_filter_data)->codec_type) != 0);
+	for (size_t i = 0; i < sizeof(real_codecs) / sizeof(real_codecs[0]); ++i)
+		codec_add_real_controls(props, &real_codecs[i]);
+	enum retro_video_codec current =
+		data && data->active_filter_data
+			? codec_video_kind(((codec_filter_data_t *)data->active_filter_data)->codec_type)
+			: 0;
+	codec_set_visibility(props, current);
 #endif
 }
 
@@ -349,12 +558,16 @@ void codec_filter_video_render(retro_effects_filter_data_t *data)
 	enum retro_video_codec kind = codec_video_kind(filter->codec_type);
 	if (kind && base->input_texture_generated) {
 		struct retro_video_options preset = retro_video_default_options(kind);
-		const int width = preset.width, height = preset.height;
-		if (!retro_video_obs_matches(filter->video, kind, width, height, filter->video_fps,
-					     filter->video_bitrate, filter->video_gop)) {
+		struct retro_video_options options = preset;
+		options.fps = filter->video_fps;
+		options.bitrate = filter->video_bitrate;
+		options.gop_size = filter->video_gop;
+		options.cinepak_codebook_passes = filter->video_cinepak_passes;
+		options.svq1_motion_estimation = filter->video_svq1_motion;
+		options.mjpeg_quantizer = filter->video_mjpeg_quantizer;
+		if (!retro_video_obs_matches(filter->video, &options)) {
 			retro_video_obs_destroy(filter->video);
-			filter->video = retro_video_obs_create(kind, width, height, filter->video_fps,
-							       filter->video_bitrate, filter->video_gop);
+			filter->video = retro_video_obs_create(&options);
 			filter->video_due = true;
 			filter->video_elapsed = 0.0f;
 		}
@@ -578,8 +791,7 @@ static bool codec_type_modified(obs_properties_t *props, obs_property_t *p, obs_
 	UNUSED_PARAMETER(p);
 #ifdef ENABLE_VIDEO_CODECS
 	enum retro_video_codec selected = codec_video_kind((uint32_t)obs_data_get_int(settings, "codec_type"));
-	codec_video_settings(settings, selected, true);
-	codec_set_visibility(props, selected != 0);
+	codec_set_visibility(props, selected);
 #else
 	UNUSED_PARAMETER(props);
 	UNUSED_PARAMETER(settings);

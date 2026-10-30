@@ -196,10 +196,16 @@ int main(int argc, char **argv)
 			gs_texrender_destroy(target);
 		obs_leave_graphics();
 	}
+	char fps_key[80], bitrate_key[80], gop_key[80];
+	snprintf(fps_key, sizeof(fps_key), "codec_real_%s_fps", selected->name);
+	snprintf(bitrate_key, sizeof(bitrate_key), "codec_real_%s_kbps", selected->name);
+	snprintf(gop_key, sizeof(gop_key), "codec_real_%s_gop", selected->name);
 	auto *migrated_settings = obs_source_get_settings(filter);
-	bool migrated = migrated_settings && obs_data_get_int(migrated_settings, "codec_video_fps") == selected->fps &&
-			obs_data_get_int(migrated_settings, "codec_video_bitrate") == selected->bitrate &&
-			obs_data_get_int(migrated_settings, "codec_video_gop") == selected->gop;
+	bool migrated = migrated_settings && obs_data_get_int(migrated_settings, fps_key) == selected->fps;
+	if (selected_codec == 2 || selected_codec == 3) {
+		migrated = migrated && obs_data_get_int(migrated_settings, bitrate_key) == 68 &&
+			   obs_data_get_int(migrated_settings, gop_key) == 12;
+	}
 	printf("VIDEO_SETTINGS_MIGRATED codec=%s pass=%d\n", argv[3], int(migrated));
 	if (migrated_settings)
 		obs_data_release(migrated_settings);
@@ -238,7 +244,45 @@ int main(int argc, char **argv)
 					found = true;
 			codec_exposed = codec_exposed && found;
 		}
-	bool controls_ok = codec_exposed && video_options && obs_property_visible(video_options);
+	// Dedicated groups and bounded sliders, never a shared settings panel.
+	const char *per_codec_group[] = {"codec_h263_controls",  "codec_mpeg4_controls",    "codec_cinepak_controls",
+					 "codec_svq1_controls",  "codec_msvideo1_controls", "codec_flv1_controls",
+					 "codec_mpeg1_controls", "codec_mjpeg_controls"};
+	bool dedicated_controls = true;
+	for (const auto &item : cases) {
+		const char *key = per_codec_group[item.ui_id - 2];
+		auto *group = properties ? obs_properties_get(properties, key) : nullptr;
+		dedicated_controls = dedicated_controls && group &&
+				     (obs_property_visible(group) == (item.ui_id == selected_codec));
+	}
+	auto *active_group = properties ? obs_properties_get(properties, per_codec_group[selected_codec - 2]) : nullptr;
+	auto *children = active_group ? obs_property_group_content(active_group) : nullptr;
+	auto *fps_prop = children ? obs_properties_get(children, fps_key) : nullptr;
+	auto *kbps_prop = children ? obs_properties_get(children, bitrate_key) : nullptr;
+	auto *gop_prop = children ? obs_properties_get(children, gop_key) : nullptr;
+	const bool supports_bitrate = selected_codec == 2 || selected_codec == 3 || selected_codec == 7 ||
+				      selected_codec == 8;
+	bool relevant = fps_prop && bool(kbps_prop) == supports_bitrate && bool(gop_prop) == supports_bitrate;
+	if (fps_prop && selected_codec != 8)
+		relevant = relevant && obs_property_int_min(fps_prop) >= 5 && obs_property_int_max(fps_prop) <= 30;
+	if (kbps_prop)
+		relevant = relevant && obs_property_int_min(kbps_prop) >= 16 &&
+			   obs_property_int_max(kbps_prop) <= 2000 &&
+			   obs_property_int_max(kbps_prop) > obs_property_int_min(kbps_prop);
+	if (gop_prop)
+		relevant = relevant && obs_property_int_min(gop_prop) == 1 && obs_property_int_max(gop_prop) <= 180;
+	auto *extra_prop = children ? obs_properties_get(children, selected_codec == 4   ? "codec_real_cinepak_passes"
+								   : selected_codec == 5 ? "codec_real_svq1_motion"
+								   : selected_codec == 9 ? "codec_real_mjpeg_quantizer"
+											 : "no-extra")
+				    : nullptr;
+	relevant = relevant &&
+		   (bool(extra_prop) == (selected_codec == 4 || selected_codec == 5 || selected_codec == 9));
+	if (selected_codec == 9 && extra_prop)
+		relevant = relevant && obs_property_int_min(extra_prop) == 2 && obs_property_int_max(extra_prop) == 31;
+	printf("VIDEO_CODEC_CONTROLS codec=%s relevant=%d\n", argv[3], int(relevant));
+	bool controls_ok = codec_exposed && dedicated_controls && relevant &&
+			   (!video_options || !obs_property_visible(video_options));
 	printf("VIDEO_GUI_CONFIG enabled=%d controls_visible=%d\n", int(codec_exposed), int(controls_ok));
 	if (properties)
 		obs_properties_destroy(properties);
@@ -253,7 +297,8 @@ int main(int argc, char **argv)
 	obs_data_release(rpza_settings);
 	auto *rpza_properties = obs_source_properties(filter);
 	auto *rpza_controls = rpza_properties ? obs_properties_get(rpza_properties, "codec_px_scale") : nullptr;
-	auto *h263_hidden = rpza_properties ? obs_properties_get(rpza_properties, "codec_video_options") : nullptr;
+	auto *h263_hidden = rpza_properties ? obs_properties_get(rpza_properties, per_codec_group[selected_codec - 2])
+					    : nullptr;
 	bool rpza_restored = rpza_controls && h263_hidden && obs_property_visible(rpza_controls) &&
 			     !obs_property_visible(h263_hidden);
 	printf("VIDEO_RPZA_SWITCH restored=%d\n", int(rpza_restored));
@@ -262,28 +307,64 @@ int main(int argc, char **argv)
 	if (!rpza_restored)
 		return 9;
 
-	// Simulate a genuine UI selection after RPZA. The callback must switch
-	// property visibility and load that codec's distinct starting profile.
+	// Switching back must retain the selected codec's settings.
 	auto *selection_props = obs_source_properties(filter);
 	auto *choice = selection_props ? obs_properties_get(selection_props, "codec_type") : nullptr;
 	auto *chosen_settings = obs_source_get_settings(filter);
 	obs_data_set_int(chosen_settings, "codec_type", selected_codec);
 	bool callback_updated = choice && obs_property_modified(choice, chosen_settings);
-	const int expected_fps = selected_codec <= 3 ? 10 : selected->fps;
-	const int expected_bitrate = selected_codec <= 3 ? 64000 : selected->bitrate;
-	const int expected_gop = selected_codec <= 3 ? 30 : selected->gop;
-	bool preset_ok = callback_updated && obs_data_get_int(chosen_settings, "codec_video_fps") == expected_fps &&
-			 obs_data_get_int(chosen_settings, "codec_video_bitrate") == expected_bitrate &&
-			 obs_data_get_int(chosen_settings, "codec_video_gop") == expected_gop;
-	auto *video_group = selection_props ? obs_properties_get(selection_props, "codec_video_options") : nullptr;
-	preset_ok = preset_ok && video_group && obs_property_visible(video_group);
-	printf("VIDEO_UI_PRESET codec=%s pass=%d\n", argv[3], int(preset_ok));
+	bool preserved = callback_updated && obs_data_get_int(chosen_settings, fps_key) == selected->fps;
 	obs_source_update(filter, chosen_settings);
 	obs_data_release(chosen_settings);
+	auto *selected_group =
+		selection_props ? obs_properties_get(selection_props, per_codec_group[selected_codec - 2]) : nullptr;
+	preserved = preserved && selected_group && obs_property_visible(selected_group);
 	if (selection_props)
 		obs_properties_destroy(selection_props);
-	if (!preset_ok)
+
+	auto *change_settings = obs_source_get_settings(filter);
+	const int altered_fps = 10; // supported across every codec, including MPEG-1
+	obs_data_set_int(change_settings, fps_key, altered_fps);
+	obs_source_update(filter, change_settings);
+	obs_data_release(change_settings);
+	auto *temporary = obs_source_get_settings(filter);
+	obs_data_set_int(temporary, "codec_type", selected_codec == 2 ? 4 : 2);
+	obs_source_update(filter, temporary);
+	obs_data_release(temporary);
+	auto *temp_values = obs_source_get_settings(filter);
+	const int other_ui = selected_codec == 2 ? 4 : 2;
+	const char *other_fps = other_ui == 4 ? "codec_real_cinepak_fps" : "codec_real_h263_fps";
+	bool independent = obs_data_get_int(temp_values, other_fps) == (other_ui == 4 ? 15 : 10);
+	printf("VIDEO_SETTINGS_INDEPENDENT codec=%s pass=%d\n", argv[3], int(independent));
+	obs_data_release(temp_values);
+	if (!independent)
+		return 12;
+	auto *back = obs_source_get_settings(filter);
+	obs_data_set_int(back, "codec_type", selected_codec);
+	obs_source_update(filter, back);
+	bool retained = preserved && obs_data_get_int(back, fps_key) == altered_fps;
+	obs_data_release(back);
+	printf("VIDEO_UI_PRESET codec=%s pass=%d retained=%d\n", argv[3], int(preserved), int(retained));
+	if (!retained)
 		return 11;
+
+	// MPEG-1 requires a discrete, encoder-supported FPS selection.
+	if (selected_codec == 8) {
+		auto *props = obs_source_properties(filter);
+		auto *group = props ? obs_properties_get(props, "codec_mpeg1_controls") : nullptr;
+		auto *children = group ? obs_property_group_content(group) : nullptr;
+		auto *fps = children ? obs_properties_get(children, fps_key) : nullptr;
+		const int allowed[] = {5, 10, 12, 15, 24, 25, 30};
+		bool allowed_only = fps && obs_property_list_item_count(fps) == 7;
+		if (fps && allowed_only)
+			for (int i = 0; i < 7; ++i)
+				allowed_only = allowed_only && obs_property_list_item_int(fps, i) == allowed[i];
+		printf("VIDEO_MPEG1_ALLOWED_FPS pass=%d\n", int(allowed_only));
+		if (props)
+			obs_properties_destroy(props);
+		if (!allowed_only)
+			return 13;
+	}
 	obs_set_output_source(0, nullptr);
 	obs_source_filter_remove(source, filter);
 	obs_source_release(filter);

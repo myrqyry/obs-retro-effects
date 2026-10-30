@@ -123,6 +123,49 @@ static void verify_msvideo1_rgb_channels(void)
 	free(output);
 }
 
+/* The MJPEG quantizer must change the real encoder's compressed output.
+ * Equal output would indicate a decorative slider disconnected from codec. */
+static uint64_t mjpeg_output_size(int quantizer)
+{
+	struct retro_video_options opts = retro_video_default_options(RETRO_VIDEO_MJPEG);
+	opts.mjpeg_quantizer = quantizer;
+	struct retro_video *codec = retro_video_create(&opts);
+	assert(codec);
+	size_t bytes = (size_t)opts.width * opts.height * 4;
+	uint8_t *src = malloc(bytes), *out = malloc(bytes);
+	assert(src && out);
+	for (int frame = 0; frame < 8; ++frame) {
+		input_frame(src, opts.width, opts.height, frame);
+		assert(retro_video_process(codec, src, opts.width * 4, out, opts.width * 4) == 1);
+	}
+	uint64_t size = retro_video_encoded_bytes(codec);
+	retro_video_destroy(codec);
+	free(out);
+	free(src);
+	return size;
+}
+
+static void verify_extra_encoder_options(void)
+{
+	uint64_t best = mjpeg_output_size(2);
+	uint64_t worst = mjpeg_output_size(28);
+	printf("MJPEG_QUANTIZER_BYTES quality2=%llu quality28=%llu\n", (unsigned long long)best,
+	       (unsigned long long)worst);
+	assert(best > worst * 1.10);
+
+	struct retro_video_options opts = retro_video_default_options(RETRO_VIDEO_SVQ1);
+	opts.svq1_motion_estimation = 2;
+	struct retro_video *svq = retro_video_create(&opts);
+	assert(svq);
+	retro_video_destroy(svq);
+	opts = retro_video_default_options(RETRO_VIDEO_CINEPAK);
+	opts.cinepak_codebook_passes = 4;
+	struct retro_video *cinepak = retro_video_create(&opts);
+	assert(cinepak);
+	retro_video_destroy(cinepak);
+	printf("CODEC_NATIVE_EXTRA_OPTIONS_PASS\n");
+}
+
 int main(void)
 {
 	av_log_set_callback(collect_ffmpeg_messages);
@@ -183,6 +226,7 @@ int main(void)
 		free(output);
 		free(input);
 	}
+	verify_extra_encoder_options();
 	verify_msvideo1_rgb_channels();
 	printf("RGB555_UNSUPPORTED_CHROMA_WARNINGS=%d\n", unsupported_rgb555_chroma_warnings);
 	assert(unsupported_rgb555_chroma_warnings == 0);

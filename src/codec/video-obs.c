@@ -14,7 +14,8 @@ struct retro_video_obs {
 	gs_texture_t *decoded_texture;
 	uint8_t *input_pixels;
 	uint8_t *output_pixels;
-	int width, height, fps, bitrate, gop;
+	struct retro_video_options options;
+	int width, height;
 	bool decoded;
 };
 
@@ -69,34 +70,28 @@ static void render_scaled(gs_texture_t *source, gs_texrender_t *target, uint32_t
 	gs_blend_state_pop();
 }
 
-struct retro_video_obs *retro_video_obs_create(enum retro_video_codec codec, int width, int height, int fps,
-					       int bitrate, int gop)
+struct retro_video_obs *retro_video_obs_create(const struct retro_video_options *options)
 {
-	if (!retro_video_supported_size(codec, width, height))
+	if (!options || !retro_video_supported_size(options->codec, options->width, options->height))
 		return NULL;
 
 	struct retro_video_obs *state = bzalloc(sizeof(*state));
-	state->codec_type = codec;
-	state->width = width;
-	state->height = height;
-	state->fps = fps;
-	state->bitrate = bitrate;
-	state->gop = gop;
-	state->codec = retro_video_create(&(struct retro_video_options){.codec = codec,
-									.width = width,
-									.height = height,
-									.fps = fps,
-									.bitrate = bitrate,
-									.gop_size = gop});
+	if (!state)
+		return NULL;
+	state->codec_type = options->codec;
+	state->width = options->width;
+	state->height = options->height;
+	state->options = *options;
+	state->codec = retro_video_create(options);
 	if (!state->codec)
 		goto error;
 
-	size_t bytes = (size_t)width * height * 4;
+	size_t bytes = (size_t)options->width * options->height * 4;
 	state->input_pixels = bzalloc(bytes);
 	state->output_pixels = bzalloc(bytes);
 	state->capture = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
-	state->stage = gs_stagesurface_create(width, height, GS_RGBA);
-	state->decoded_texture = gs_texture_create(width, height, GS_RGBA, 1, NULL, GS_DYNAMIC);
+	state->stage = gs_stagesurface_create(options->width, options->height, GS_RGBA);
+	state->decoded_texture = gs_texture_create(options->width, options->height, GS_RGBA, 1, NULL, GS_DYNAMIC);
 	if (!state->input_pixels || !state->output_pixels || !state->capture || !state->stage ||
 	    !state->decoded_texture)
 		goto error;
@@ -124,11 +119,16 @@ void retro_video_obs_destroy(struct retro_video_obs *state)
 	bfree(state);
 }
 
-bool retro_video_obs_matches(const struct retro_video_obs *state, enum retro_video_codec codec, int width, int height,
-			     int fps, int bitrate, int gop)
+bool retro_video_obs_matches(const struct retro_video_obs *state, const struct retro_video_options *options)
 {
-	return state && state->codec_type == codec && state->width == width && state->height == height &&
-	       state->fps == fps && state->bitrate == bitrate && state->gop == gop;
+	if (!state || !options)
+		return false;
+	const struct retro_video_options *a = &state->options;
+	return a->codec == options->codec && a->width == options->width && a->height == options->height &&
+	       a->fps == options->fps && a->bitrate == options->bitrate && a->gop_size == options->gop_size &&
+	       a->cinepak_codebook_passes == options->cinepak_codebook_passes &&
+	       a->svq1_motion_estimation == options->svq1_motion_estimation &&
+	       a->mjpeg_quantizer == options->mjpeg_quantizer;
 }
 
 bool retro_video_obs_render(struct retro_video_obs *state, gs_texrender_t *input, gs_texrender_t *output,

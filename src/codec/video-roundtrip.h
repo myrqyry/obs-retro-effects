@@ -25,8 +25,11 @@ struct retro_video_options {
 	int width;
 	int height;
 	int fps;
-	int bitrate;  /* target bits/second */
-	int gop_size; /* keyframe distance in frames */
+	int bitrate;                 /* target bits/second */
+	int gop_size;                /* keyframe distance in frames */
+	int cinepak_codebook_passes; /* 0..5, encoder codebook iterations */
+	int svq1_motion_estimation;  /* 0..2, zero/EPZS/X1 */
+	int mjpeg_quantizer;         /* 2..31, lower is higher quality, 0=default */
 };
 
 /* Distinct, illustrative starting profiles. Codec-specific historical defaults

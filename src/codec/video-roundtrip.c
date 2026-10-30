@@ -3,6 +3,7 @@
 #include <libavcodec/avcodec.h>
 #include <libavutil/error.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 
 #include <stdlib.h>
@@ -148,6 +149,23 @@ struct retro_video *retro_video_create(const struct retro_video_options *options
 	ctx->encoder->bit_rate = options->bitrate;
 	ctx->encoder->gop_size = options->gop_size;
 	ctx->encoder->max_b_frames = 0;
+	/* Only expose parameters implemented by the selected encoder. */
+	if (options->codec == RETRO_VIDEO_CINEPAK) {
+		if (options->cinepak_codebook_passes < 0 || options->cinepak_codebook_passes > 5 ||
+		    av_opt_set_int(ctx->encoder->priv_data, "max_extra_cb_iterations", options->cinepak_codebook_passes,
+				   0) < 0)
+			goto error;
+	} else if (options->codec == RETRO_VIDEO_SVQ1) {
+		if (options->svq1_motion_estimation < 0 || options->svq1_motion_estimation > 2 ||
+		    av_opt_set_int(ctx->encoder->priv_data, "motion-est", options->svq1_motion_estimation, 0) < 0)
+			goto error;
+	} else if (options->codec == RETRO_VIDEO_MJPEG) {
+		int q = options->mjpeg_quantizer ? options->mjpeg_quantizer : 5;
+		if (q < 2 || q > 31)
+			goto error;
+		ctx->encoder->flags |= AV_CODEC_FLAG_QSCALE;
+		ctx->encoder->global_quality = FF_QP2LAMBDA * q;
+	}
 	/* MJPEG has full-range image chroma; RGB-family codecs do not use YUV
 	 * conversion at all. This is actual encoder input, not a lookalike pass. */
 	if (options->codec == RETRO_VIDEO_MJPEG)
@@ -228,6 +246,8 @@ int retro_video_process(struct retro_video *ctx, const uint8_t *rgba, int input_
 			return -1;
 	}
 
+	if (ctx->encoder->codec_id == AV_CODEC_ID_MJPEG && (ctx->encoder->flags & AV_CODEC_FLAG_QSCALE))
+		ctx->input->quality = ctx->encoder->global_quality;
 	ctx->input->pts = ctx->pts++;
 	if (avcodec_send_frame(ctx->encoder, ctx->input) < 0)
 		return -1;
