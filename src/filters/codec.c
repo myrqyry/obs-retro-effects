@@ -1,5 +1,9 @@
 #include "codec.h"
+#include <math.h>
 #include "../obs-utils.h"
+#ifdef ENABLE_H263_CODEC
+#include "../codec/h263-obs.h"
+#endif
 
 void codec_create(retro_effects_filter_data_t *filter)
 {
@@ -31,6 +35,9 @@ void codec_destroy(retro_effects_filter_data_t *filter)
 		gs_texrender_destroy(data->texrender_downsampled_output);
 	}
 	obs_leave_graphics();
+#ifdef ENABLE_H263_CODEC
+	retro_h263_obs_destroy(data->h263);
+#endif
 
 	bfree(filter->active_filter_data);
 	filter->active_filter_data = NULL;
@@ -47,6 +54,11 @@ void codec_unset_settings(retro_effects_filter_data_t* filter)
 	obs_data_unset_user_value(settings, "codec_rpza_threshold_prev_frame");
 	obs_data_unset_user_value(settings, "codec_rpza_threshold_solid");
 	obs_data_unset_user_value(settings, "codec_rpza_threshold_gradient");
+#ifdef ENABLE_H263_CODEC
+	obs_data_unset_user_value(settings, "codec_h263_fps");
+	obs_data_unset_user_value(settings, "codec_h263_bitrate");
+	obs_data_unset_user_value(settings, "codec_h263_gop");
+#endif
 	obs_data_release(settings);
 }
 
@@ -68,6 +80,11 @@ void codec_filter_update(retro_effects_filter_data_t *data,
 	filter->rpza_threshold_prev_frame = (float)obs_data_get_double(settings, "codec_rpza_threshold_prev_frame");
 	filter->rpza_threshold_solid = (float)obs_data_get_double(settings, "codec_rpza_threshold_solid");
 	filter->rpza_threshold_gradient = (float)obs_data_get_double(settings, "codec_rpza_threshold_gradient");
+#ifdef ENABLE_H263_CODEC
+	filter->h263_fps = (int)obs_data_get_int(settings, "codec_h263_fps");
+	filter->h263_bitrate = (int)obs_data_get_int(settings, "codec_h263_bitrate");
+	filter->h263_gop = (int)obs_data_get_int(settings, "codec_h263_gop");
+#endif
 
 	if (!filter->custom_thresholds) {
 		filter->rpza_threshold_prev_frame = lerp(0.5f, 0.0f, filter->quality); // TODO fine-tune
@@ -92,7 +109,26 @@ void codec_filter_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "codec_rpza_threshold_prev_frame", 0.14);
 	obs_data_set_default_double(settings, "codec_rpza_threshold_solid", 0.1);
 	obs_data_set_default_double(settings, "codec_rpza_threshold_gradient", 0.18);
+#ifdef ENABLE_H263_CODEC
+	obs_data_set_default_int(settings, "codec_h263_fps", 10);
+	obs_data_set_default_int(settings, "codec_h263_bitrate", 64000);
+	obs_data_set_default_int(settings, "codec_h263_gop", 30);
+#endif
 }
+
+#ifdef ENABLE_H263_CODEC
+static void codec_set_visibility(obs_properties_t *props, bool h263)
+{
+	const char *rpza_keys[] = {"codec_px_scale", "codec_colors_per_channel",
+		"codec_quality", "codec_keyframe_interval", "codec_custom_thresholds"};
+	for (size_t i = 0; i < sizeof(rpza_keys) / sizeof(rpza_keys[0]); ++i) {
+		obs_property_t *p = obs_properties_get(props, rpza_keys[i]);
+		if (p) obs_property_set_visible(p, !h263);
+	}
+	obs_property_t *h263_group = obs_properties_get(props, "codec_h263_options");
+	if (h263_group) obs_property_set_visible(h263_group, h263);
+}
+#endif
 
 void codec_filter_properties(retro_effects_filter_data_t *data,
 					    obs_properties_t *props)
@@ -101,12 +137,17 @@ void codec_filter_properties(retro_effects_filter_data_t *data,
 
 	// Codec Type
 	obs_property_t *codec_type = obs_properties_add_list(
-		props, "codec_type", obs_module_text("RetroEffects.Dither.Type"),
+		props, "codec_type", obs_module_text("RetroEffects.Codec.Type"),
 		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 
 	obs_property_list_add_int(codec_type,
 				  obs_module_text(CODEC_TYPE_RPZA_LABEL),
 				  CODEC_TYPE_RPZA);
+#ifdef ENABLE_H263_CODEC
+	obs_property_list_add_int(codec_type,
+				  obs_module_text(CODEC_TYPE_H263_LABEL),
+				  CODEC_TYPE_H263);
+#endif
 	obs_property_set_modified_callback(codec_type,
 					   codec_type_modified);
 
@@ -122,6 +163,20 @@ void codec_filter_properties(retro_effects_filter_data_t *data,
 	obs_properties_add_float_slider(thresholds_group, "codec_rpza_threshold_gradient", obs_module_text("RetroEffects.Codec.ThresholdGradient"), 0.0f, 1.0f, 0.01f );
 
 	obs_properties_add_group(props, "codec_custom_thresholds", obs_module_text("RetroEffects.Codec.CustomThresholds"), OBS_GROUP_CHECKABLE, thresholds_group);
+#ifdef ENABLE_H263_CODEC
+	obs_properties_t *h263_options = obs_properties_create();
+	obs_properties_add_int_slider(h263_options, "codec_h263_fps",
+				       obs_module_text("RetroEffects.Codec.H263.Fps"), 5, 25, 1);
+	obs_properties_add_int_slider(h263_options, "codec_h263_bitrate",
+				       obs_module_text("RetroEffects.Codec.H263.Bitrate"), 8000, 400000, 1000);
+	obs_properties_add_int_slider(h263_options, "codec_h263_gop",
+				       obs_module_text("RetroEffects.Codec.H263.Gop"), 1, 300, 1);
+	obs_properties_add_group(props, "codec_h263_options",
+				 obs_module_text("RetroEffects.Codec.H263.Options"),
+				 OBS_GROUP_NORMAL, h263_options);
+	codec_set_visibility(props, data && data->active_filter_data &&
+		((codec_filter_data_t *)data->active_filter_data)->codec_type == CODEC_TYPE_H263);
+#endif
 }
 
 
@@ -214,6 +269,28 @@ void codec_filter_video_render(retro_effects_filter_data_t *data)
 	codec_filter_data_t *filter = data->active_filter_data;
 
 	get_input_source(base);
+#ifdef ENABLE_H263_CODEC
+	if (filter->codec_type == CODEC_TYPE_H263 && base->input_texture_generated) {
+		const int width = 176, height = 144; /* QCIF; H.263 sample aspect 12:11 */
+		if (!retro_h263_obs_matches(filter->h263, width, height,
+				filter->h263_fps, filter->h263_bitrate, filter->h263_gop)) {
+			retro_h263_obs_destroy(filter->h263);
+			filter->h263 = retro_h263_obs_create(width, height,
+				filter->h263_fps, filter->h263_bitrate, filter->h263_gop);
+			filter->h263_due = true;
+			filter->h263_elapsed = 0.0f;
+		}
+		if (!retro_h263_obs_render(filter->h263, base->input_texrender,
+				base->output_texrender, base->width, base->height,
+				filter->h263_due)) {
+			base->rendering = false;
+			obs_source_skip_video_filter(base->context);
+		} else {
+			filter->h263_due = false;
+		}
+		return;
+	}
+#endif
 	if (!base->input_texture_generated || filter->loading_effect) {
 		base->rendering = false;
 		obs_source_skip_video_filter(base->context);
@@ -336,6 +413,16 @@ void codec_filter_video_tick(retro_effects_filter_data_t *data, float seconds)
 {
 	codec_filter_data_t *filter = data->active_filter_data;
 	filter->time_since_keyframe += seconds;
+#ifdef ENABLE_H263_CODEC
+	if (filter->codec_type == CODEC_TYPE_H263 && filter->h263_fps > 0) {
+		filter->h263_elapsed += seconds;
+		const float interval = 1.0f / filter->h263_fps;
+		if (filter->h263_elapsed >= interval) {
+			filter->h263_due = true;
+			filter->h263_elapsed = fmodf(filter->h263_elapsed, interval);
+		}
+	}
+#endif
 }
 
 
@@ -421,9 +508,12 @@ static void codec_load_effect(codec_filter_data_t *filter)
 static bool codec_type_modified(obs_properties_t *props, obs_property_t *p,
 				 obs_data_t *settings)
 {
-	// Once we add more codec types, control parameter visibility here
-	UNUSED_PARAMETER(props);
 	UNUSED_PARAMETER(p);
+#ifdef ENABLE_H263_CODEC
+	codec_set_visibility(props, obs_data_get_int(settings, "codec_type") == CODEC_TYPE_H263);
+#else
+	UNUSED_PARAMETER(props);
 	UNUSED_PARAMETER(settings);
+#endif
 	return true;
 }

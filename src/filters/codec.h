@@ -5,6 +5,11 @@
 
 #define CODEC_TYPE_RPZA 1
 #define CODEC_TYPE_RPZA_LABEL "RetroEffects.Codec.RPZA"
+#ifdef ENABLE_H263_CODEC
+#define CODEC_TYPE_H263 2
+#define CODEC_TYPE_H263_LABEL "RetroEffects.Codec.H263"
+struct retro_h263_obs;
+#endif
 
 struct codec_filter_data;
 typedef struct codec_filter_data codec_filter_data_t;
@@ -53,6 +58,12 @@ struct codec_filter_data {
 	bool reload_effect;
 
 	float time_since_keyframe;
+#ifdef ENABLE_H263_CODEC
+	struct retro_h263_obs *h263;
+	int h263_fps, h263_bitrate, h263_gop;
+	float h263_elapsed;
+	bool h263_due;
+#endif
 };
 
 extern void codec_create(retro_effects_filter_data_t *filter);

@@ -134,6 +134,45 @@ User adjustable parameters include pixel scale, colors per channel, quality, key
 
 ![retro codec filter preview](.github/assets/images/retro-codec.png)
 
+### Authentic early-phone H.263 (this fork; optional)
+
+For an early **H.263-based** mobile recording, this fork offers a separate mode that
+runs frames through FFmpeg's actual baseline H.263 encoder **and decoder**. This
+is not the old 3GP shader approximation, nor is it a 3GP-file reader or recorder.
+3GP is a container that could also hold MPEG-4 Part 2; these are distinct codecs.
+
+The initial target is **QCIF (176 × 144), YUV 4:2:0, 10 fps, 64 kbps target bitrate,
+and a 30-frame GOP**. You can change fps, target bitrate, and GOP interval. The
+encoder's actual output size depends on the scene, so the requested bitrate
+is a rate-control target rather than a guarantee. In accordance with H.263's
+QCIF sample aspect ratio (12:11), it center-crops widescreen sources to the
+historical 4:3 display area, then pillarboxes/letterboxes the decoded picture
+within the OBS canvas instead of stretching it.
+
+The codec is built **only when** `ENABLE_H263_CODEC=ON` and FFmpeg development
+libraries (`libavcodec`, `libavutil`, `libswscale`) are available. The
+headless OBS test additionally requires `xvfb-run` and a C++ compiler. This is
+currently a **Linux-verified experimental option**, not part of the default
+Windows/macOS build or official upstream release. For a local test build:
+
+```bash
+cmake --preset ubuntu-x86_64 -DENABLE_H263_CODEC=ON -DBUILD_TESTING=ON
+cmake --build --preset ubuntu-x86_64 -j4
+ctest --test-dir build_x86_64 --output-on-failure
+```
+
+The tests run a real 45-frame H.263 encode/decode, then load the actual OBS
+plugin inside isolated libobs/OpenGL and read back moving decoded pixels
+with the expected 4:3 framing. Neither test alters your installed OBS plugin.
+
+**Current limits:** decoding and GPU readback happen synchronously on the OBS
+render path; capture latency and long-running streaming performance are not
+yet established. H.263 is opaque video (no source-alpha preservation), and
+this mode does not emulate a phone sensor, a 3GP muxer, audio compression,
+packet loss, or a particular handset's image pipeline. Further validation
+against recordings from specific devices is needed before calling it a
+faithful reproduction of any *individual phone*.
+
 ## VHS
 Be kind, please rewind. The VHS filter emulates many artifacts seen when playing VHS tapes including tape wrinkle, frame jitter, pop lines, and head switching noise.  It gives the user many tweakable options:
 - Frame Jitter: min/max size, min/max period, min/max random interval.
