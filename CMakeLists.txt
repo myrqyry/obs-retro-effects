@@ -15,6 +15,46 @@ add_library(${CMAKE_PROJECT_NAME} MODULE)
 
 find_package(libobs REQUIRED)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
+target_sources(${PROJECT_NAME} PRIVATE src/filters/dither-diffusion.c src/filters/dither-diffusion.h
+ src/filters/dither-cpu-render.c src/filters/dither-cpu-render.h)
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(test_dither_diffusion tests/test-dither-diffusion.c src/filters/dither-diffusion.c)
+  if(UNIX)
+    target_link_libraries(test_dither_diffusion PRIVATE m)
+  endif()
+  add_test(NAME dither_diffusion COMMAND test_dither_diffusion)
+endif()
+
+
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  find_program(XVFB_RUN xvfb-run)
+  file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/h263-test-home")
+  if(XVFB_RUN)
+        add_executable(test_dither_ui tests/test-dither-ui.cpp)
+        target_link_libraries(test_dither_ui PRIVATE OBS::libobs)
+        add_test(NAME dither_ui
+          COMMAND ${CMAKE_COMMAND} -E env
+            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            ${XVFB_RUN} -a
+            $<TARGET_FILE:test_dither_ui>
+            $<TARGET_FILE:${PROJECT_NAME}>
+            "${CMAKE_CURRENT_SOURCE_DIR}/data")
+        set_tests_properties(dither_ui PROPERTIES TIMEOUT 30)
+        add_executable(test_dither_obs tests/test-dither-obs.cpp)
+        target_link_libraries(test_dither_obs PRIVATE OBS::libobs)
+        add_test(NAME dither_obs_render
+          COMMAND ${CMAKE_COMMAND} -E env
+            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            ${XVFB_RUN} -a
+            $<TARGET_FILE:test_dither_obs>
+            $<TARGET_FILE:${PROJECT_NAME}>
+            "${CMAKE_CURRENT_SOURCE_DIR}/data")
+        set_tests_properties(dither_obs_render PROPERTIES TIMEOUT 45)
+  endif()
+endif()
 
 # Authentic H.263 and MPEG-4 Part 2 encode/decode (opt-in).
 option(ENABLE_VIDEO_CODECS "Enable actual H.263/MPEG-4 Part 2 codecs" OFF)

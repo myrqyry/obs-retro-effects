@@ -1,5 +1,6 @@
 #include "dither.h"
 #include "../obs-utils.h"
+#include "dither-cpu-render.h"
 
 void dither_create(retro_effects_filter_data_t *filter)
 {
@@ -17,9 +18,9 @@ void dither_destroy(retro_effects_filter_data_t *filter)
 {
 	dither_filter_data_t *data = filter->active_filter_data;
 	obs_enter_graphics();
-	if (data->effect_dither) {
+	if (data->effect_dither)
 		gs_effect_destroy(data->effect_dither);
-	}
+	dither_cpu_destroy(data);
 
 	obs_leave_graphics();
 
@@ -27,9 +28,9 @@ void dither_destroy(retro_effects_filter_data_t *filter)
 	filter->active_filter_data = NULL;
 }
 
-void dither_unset_settings(retro_effects_filter_data_t* filter)
+void dither_unset_settings(retro_effects_filter_data_t *filter)
 {
-	obs_data_t* settings = obs_source_get_settings(filter->base->context);
+	obs_data_t *settings = obs_source_get_settings(filter->base->context);
 	obs_data_unset_user_value(settings, "dither_size");
 	obs_data_unset_user_value(settings, "dither_type");
 	obs_data_unset_user_value(settings, "dither_bayer_size");
@@ -43,8 +44,7 @@ void dither_unset_settings(retro_effects_filter_data_t* filter)
 	obs_data_release(settings);
 }
 
-void dither_filter_update(retro_effects_filter_data_t *data,
-					obs_data_t *settings)
+void dither_filter_update(retro_effects_filter_data_t *data, obs_data_t *settings)
 {
 	dither_filter_data_t *filter = data->active_filter_data;
 	filter->dither_size = (float)obs_data_get_double(settings, "dither_size");
@@ -77,77 +77,67 @@ void dither_filter_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "dither_offset_y", 1.0);
 }
 
-void dither_filter_properties(retro_effects_filter_data_t *data,
-					    obs_properties_t *props)
+void dither_filter_properties(retro_effects_filter_data_t *data, obs_properties_t *props)
 {
 
 	// Dither Type
-	obs_property_t *dither_type = obs_properties_add_list(
-		props, "dither_type", obs_module_text("RetroEffects.Dither.Type"),
-		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_t *dither_type = obs_properties_add_list(props, "dither_type",
+							      obs_module_text("RetroEffects.Dither.Type"),
+							      OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 
-	obs_property_list_add_int(dither_type,
-				  obs_module_text(DITHER_TYPE_ORDERED_LABEL),
-				  DITHER_TYPE_ORDERED);
-	obs_property_list_add_int(dither_type,
-				  obs_module_text(DITHER_TYPE_UNORDERED_LABEL),
-				  DITHER_TYPE_UNORDERED);
-	obs_property_set_modified_callback(dither_type,
-					   dither_type_modified);
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_ORDERED_LABEL), DITHER_TYPE_ORDERED);
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_UNORDERED_LABEL), DITHER_TYPE_UNORDERED);
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_NOITA_H_LABEL), DITHER_TYPE_NOITA_H);
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_NOITA_V_LABEL), DITHER_TYPE_NOITA_V);
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_NOITA_D_LABEL), DITHER_TYPE_NOITA_D);
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_FLOYD_LABEL), DITHER_TYPE_FLOYD);
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_ATKINSON_LABEL), DITHER_TYPE_ATKINSON);
+	obs_property_list_add_int(dither_type, obs_module_text(DITHER_TYPE_SIERRA_LITE_LABEL), DITHER_TYPE_SIERRA_LITE);
+	obs_property_set_modified_callback(dither_type, dither_type_modified);
 
-	obs_property_t *bayer_size = obs_properties_add_list(
-		props, "dither_bayer_size",
-		obs_module_text("RetroEffects.Dither.BayerSize"),
-		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_t *bayer_size = obs_properties_add_list(props, "dither_bayer_size",
+							     obs_module_text("RetroEffects.Dither.BayerSize"),
+							     OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 
 	obs_property_list_add_int(bayer_size, "2x2", 2);
 	obs_property_list_add_int(bayer_size, "4x4", 4);
 	obs_property_list_add_int(bayer_size, "8x8", 8);
 
-	obs_property_set_modified_callback2(bayer_size,
-					   dither_bayer_size_modified, data->active_filter_data);
+	obs_property_set_modified_callback2(bayer_size, dither_bayer_size_modified, data->active_filter_data);
 
 	// Dither Size
 	obs_property_t *p = obs_properties_add_float_slider(
-		props, "dither_size",
-		obs_module_text("RetroEffects.Dither.Size"), 0.4, 10.0,
-		0.1);
+		props, "dither_size", obs_module_text("RetroEffects.Dither.Size"), 0.4, 10.0, 0.1);
 	obs_property_float_set_suffix(p, "px");
 
-
-
-	obs_properties_add_int_slider(
-		props, "dither_color_steps",
-		obs_module_text("RetroEffects.Dither.ColorSteps"), 1, 32, 1);
+	obs_properties_add_int_slider(props, "dither_color_steps", obs_module_text("RetroEffects.Dither.ColorSteps"), 1,
+				      32, 1);
 
 	obs_properties_add_bool(props, "dither_mono", obs_module_text("RetroEffects.Dither.Monochromatic"));
 
-	obs_property_t * dither_round = obs_properties_add_bool(
-		props, "dither_round",
-		obs_module_text("RetroEffects.Dither.RoundToPixel"));
-	obs_property_set_modified_callback2(dither_round,
-					   dither_round_to_pixel_modified, data->active_filter_data);
+	obs_property_t *dither_round =
+		obs_properties_add_bool(props, "dither_round", obs_module_text("RetroEffects.Dither.RoundToPixel"));
+	obs_property_set_modified_callback2(dither_round, dither_round_to_pixel_modified, data->active_filter_data);
 
 	// Contrast
-	obs_properties_add_float_slider(
-		props, "dither_contrast",
-		obs_module_text("RetroEffects.Dither.Contrast"), -1.0, 1.0, 0.1);
+	obs_properties_add_float_slider(props, "dither_contrast", obs_module_text("RetroEffects.Dither.Contrast"), -1.0,
+					1.0, 0.1);
 	// Gamma
-	obs_properties_add_float_slider(
-		props, "dither_gamma",
-		obs_module_text("RetroEffects.Dither.Gamma"), 0.25, 2.0, 0.025);
+	obs_properties_add_float_slider(props, "dither_gamma", obs_module_text("RetroEffects.Dither.Gamma"), 0.25, 2.0,
+					0.025);
 
-	p = obs_properties_add_float_slider(
-		props,
-		"dither_offset_x", obs_module_text("RetroEffects.Dither.OffsetX"),
-		-4000.0, 4000.0, 1.0);
+	p = obs_properties_add_float_slider(props, "dither_offset_x", obs_module_text("RetroEffects.Dither.OffsetX"),
+					    -4000.0, 4000.0, 1.0);
 	obs_property_float_set_suffix(p, "px");
 
-	p = obs_properties_add_float_slider(
-		props, "dither_offset_y",
-		obs_module_text("RetroEffects.Dither.OffsetY"), -4000.0, 4000.0,
-		1.0);
+	p = obs_properties_add_float_slider(props, "dither_offset_y", obs_module_text("RetroEffects.Dither.OffsetY"),
+					    -4000.0, 4000.0, 1.0);
 	obs_property_float_set_suffix(p, "px");
+	obs_data_t *current = obs_source_get_settings(data->base->context);
+	if (current) {
+		dither_type_modified(props, dither_type, current);
+		obs_data_release(current);
+	}
 }
 
 void dither_filter_video_render(retro_effects_filter_data_t *data)
@@ -169,8 +159,7 @@ void dither_filter_video_render(retro_effects_filter_data_t *data)
 		return;
 	}
 
-	base->output_texrender =
-		create_or_reset_texrender(base->output_texrender);
+	base->output_texrender = create_or_reset_texrender(base->output_texrender);
 
 	if (filter->param_uv_size) {
 		struct vec2 uv_size;
@@ -188,18 +177,24 @@ void dither_filter_video_render(retro_effects_filter_data_t *data)
 		gs_effect_set_float(filter->param_dither_size, filter->dither_size);
 	}
 	if (filter->param_contrast) {
-		gs_effect_set_float(filter->param_contrast,
-				    filter->contrast);
+		gs_effect_set_float(filter->param_contrast, filter->contrast);
 	}
 	if (filter->param_gamma) {
-		gs_effect_set_float(filter->param_gamma,
-				    filter->gamma);
+		gs_effect_set_float(filter->param_gamma, filter->gamma);
 	}
 	if (filter->param_color_steps) {
-		gs_effect_set_float(filter->param_color_steps,
-				    (float)filter->color_steps);
+		gs_effect_set_float(filter->param_color_steps, (float)filter->color_steps);
 	}
 
+	if (filter->param_dither_variant)
+		gs_effect_set_float(filter->param_dither_variant, (float)filter->dither_type);
+	if (filter->dither_type >= DITHER_TYPE_FLOYD && filter->dither_type <= DITHER_TYPE_SIERRA_LITE) {
+		if (!dither_cpu_render(filter, base, image, effect))
+			obs_source_skip_video_filter(base->context);
+		return;
+	}
+	if (filter->param_diffusion_prepass)
+		gs_effect_set_float(filter->param_diffusion_prepass, 0.f);
 	set_render_parameters();
 	set_blending_parameters();
 
@@ -207,13 +202,10 @@ void dither_filter_video_render(retro_effects_filter_data_t *data)
 	struct dstr technique;
 	dstr_init_copy(&technique, "Draw");
 	dstr_cat(&technique, filter->monochromatic ? "Mono" : "Color");
-	dstr_cat(&technique,
-		 filter->dither_type == DITHER_TYPE_ORDERED ? "Ordered" : "BN");
+	dstr_cat(&technique, filter->dither_type == DITHER_TYPE_UNORDERED ? "BN" : "Ordered");
 
-	if (gs_texrender_begin(base->output_texrender, base->width,
-			       base->height)) {
-		gs_ortho(0.0f, (float)base->width, 0.0f, (float)base->height,
-			 -100.0f, 100.0f);
+	if (gs_texrender_begin(base->output_texrender, base->width, base->height)) {
+		gs_ortho(0.0f, (float)base->width, 0.0f, (float)base->height, -100.0f, 100.0f);
 		while (gs_effect_loop(effect, technique.array))
 			gs_draw_sprite(image, 0, base->width, base->height);
 		gs_texrender_end(base->output_texrender);
@@ -222,8 +214,7 @@ void dither_filter_video_render(retro_effects_filter_data_t *data)
 	gs_blend_state_pop();
 }
 
-static void
-dither_set_functions(retro_effects_filter_data_t *filter)
+static void dither_set_functions(retro_effects_filter_data_t *filter)
 {
 	filter->filter_properties = dither_filter_properties;
 	filter->filter_video_render = dither_filter_video_render;
@@ -244,6 +235,17 @@ static void dither_load_effect(dither_filter_data_t *filter)
 		obs_leave_graphics();
 	}
 
+	/* A shader reload must not leave dangling parameter references. */
+	filter->param_image = NULL;
+	filter->param_uv_size = NULL;
+	filter->param_dither_size = NULL;
+	filter->param_contrast = NULL;
+	filter->param_gamma = NULL;
+	filter->param_offset = NULL;
+	filter->param_color_steps = NULL;
+	filter->param_dither_variant = NULL;
+	filter->param_diffusion_prepass = NULL;
+	filter->param_processed_image = NULL;
 	char *shader_text = NULL;
 	struct dstr filename = {0};
 	dstr_cat(&filename, obs_get_module_data_path(obs_current_module()));
@@ -274,19 +276,13 @@ static void dither_load_effect(dither_filter_data_t *filter)
 	dstr_free(&shader_dstr);
 	bfree(shader_text);
 	if (filter->effect_dither == NULL) {
-		blog(LOG_WARNING,
-		     "[obs-retro-effects] Unable to load dither-blue-noise.effect file.  Errors:\n%s",
-		     (errors == NULL || strlen(errors) == 0 ? "(None)"
-							    : errors));
+		blog(LOG_WARNING, "[obs-retro-effects] Unable to load dither-blue-noise.effect file.  Errors:\n%s",
+		     (errors == NULL || strlen(errors) == 0 ? "(None)" : errors));
 		bfree(errors);
 	} else {
-		size_t effect_count = gs_effect_get_num_params(
-			filter->effect_dither);
-		for (size_t effect_index = 0; effect_index < effect_count;
-		     effect_index++) {
-			gs_eparam_t *param = gs_effect_get_param_by_idx(
-				filter->effect_dither,
-				effect_index);
+		size_t effect_count = gs_effect_get_num_params(filter->effect_dither);
+		for (size_t effect_index = 0; effect_index < effect_count; effect_index++) {
+			gs_eparam_t *param = gs_effect_get_param_by_idx(filter->effect_dither, effect_index);
 			struct gs_effect_param_info info;
 			gs_effect_get_param_info(param, &info);
 			if (strcmp(info.name, "image") == 0) {
@@ -303,14 +299,19 @@ static void dither_load_effect(dither_filter_data_t *filter)
 				filter->param_offset = param;
 			} else if (strcmp(info.name, "color_steps") == 0) {
 				filter->param_color_steps = param;
+			} else if (strcmp(info.name, "dither_variant") == 0) {
+				filter->param_dither_variant = param;
+			} else if (strcmp(info.name, "dither_diffusion_prepass") == 0) {
+				filter->param_diffusion_prepass = param;
+			} else if (strcmp(info.name, "processed_image") == 0) {
+				filter->param_processed_image = param;
 			}
 		}
 	}
 	filter->loading_effect = false;
 }
 
-static bool dither_bayer_size_modified(void* data, obs_properties_t *props,
-				       obs_property_t *p, obs_data_t *settings)
+static bool dither_bayer_size_modified(void *data, obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
 {
 	UNUSED_PARAMETER(p);
 	UNUSED_PARAMETER(props);
@@ -320,8 +321,7 @@ static bool dither_bayer_size_modified(void* data, obs_properties_t *props,
 	return false;
 }
 
-static bool dither_round_to_pixel_modified(void* data, obs_properties_t *props,
-				       obs_property_t *p, obs_data_t *settings)
+static bool dither_round_to_pixel_modified(void *data, obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
 {
 	UNUSED_PARAMETER(p);
 	UNUSED_PARAMETER(props);
@@ -331,13 +331,15 @@ static bool dither_round_to_pixel_modified(void* data, obs_properties_t *props,
 	return false;
 }
 
-static bool dither_type_modified(obs_properties_t *props,
-					 obs_property_t *p,
-					 obs_data_t *settings)
+static bool dither_type_modified(obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
 {
 	UNUSED_PARAMETER(p);
 
 	int dither_type = (int)obs_data_get_int(settings, "dither_type");
+	setting_visibility("dither_round", dither_type < DITHER_TYPE_FLOYD, props);
+	obs_property_t *size = obs_properties_get(props, "dither_size");
+	if (size)
+		obs_property_float_set_limits(size, dither_type >= DITHER_TYPE_FLOYD ? 1.0 : 0.4, 10.0, 0.1);
 	switch (dither_type) {
 	case DITHER_TYPE_ORDERED:
 		setting_visibility("dither_offset_x", false, props);
@@ -347,6 +349,20 @@ static bool dither_type_modified(obs_properties_t *props,
 	case DITHER_TYPE_UNORDERED:
 		setting_visibility("dither_offset_x", true, props);
 		setting_visibility("dither_offset_y", true, props);
+		setting_visibility("dither_bayer_size", false, props);
+		break;
+	case DITHER_TYPE_NOITA_H:
+	case DITHER_TYPE_NOITA_V:
+	case DITHER_TYPE_NOITA_D:
+		setting_visibility("dither_offset_x", false, props);
+		setting_visibility("dither_offset_y", false, props);
+		setting_visibility("dither_bayer_size", false, props);
+		break;
+	case DITHER_TYPE_FLOYD:
+	case DITHER_TYPE_ATKINSON:
+	case DITHER_TYPE_SIERRA_LITE:
+		setting_visibility("dither_offset_x", false, props);
+		setting_visibility("dither_offset_y", false, props);
 		setting_visibility("dither_bayer_size", false, props);
 		break;
 	}

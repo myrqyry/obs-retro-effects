@@ -77,7 +77,39 @@ Users have the ability to adjust the number of color levels used in the posteriz
 ## Dither
 Send your video back to Windows 3.1 with the dithering filter.  Dithering is a technique used on lower bit-depth displays to smooth transitions between different colors or shades by adding noise or patterns, thereby reducing the appearance of banding or color stepping.
 
-The dithering filter provides the user with both ordered and unordered dithering algorithms that emulate graphics from early windows and mac computers. Options include the ordered dithering pattern used, dither size, colors per channel, monochromatic or color dithering, pixel resampling/rounding, and pre-dither contrast and gamma adjustments.
+The dithering filter now includes all the methods previously used
+in the **noita-chat** emote palette pipeline:
+
+- **Ordered, GPU:** traditional Bayer 2×2, 4×4, 8×8, and the exact
+  2×2 horizontal, vertical and diagonal threshold distributions from
+  noita-chat (utils/colorScience.ts). The latter three are intentionally
+  directional patterns with repeated ranks, **not** standard Bayer permutations.
+- **Quasi-random, GPU:** the original Hilbert R1/triangular noise mode
+  (historically labeled "Unordered"; it is not a sampled blue-noise texture).
+- **True sequential error diffusion, CPU:** Floyd–Steinberg, Atkinson, and
+  Sierra Lite, using the actual neighbor error propagation kernels from
+  noita-chat. These are not ordered-dither shaders relabeled as diffusion.
+
+The noita-chat code quantizes against a selected arbitrary color palette;
+this OBS filter instead applies the same distributions/kernels to its
+existing **colors-per-channel** uniform RGB palette. Dither size,
+monochrome, gamma, contrast and color depth remain configurable. The Bayer
+matrix size option only appears for standard ordered Bayer, noise offset
+controls appear only for the original Hilbert mode, and pixel rounding is
+hidden for the CPU algorithms.
+
+**Performance:** GPU ordered modes are single-pass. Error diffusion
+requires an additional GPU-to-CPU readback, a sequential CPU propagation
+pass, and a nearest-neighbor texture upload for each frame. Dither size
+is at least 1 px in these CPU modes, and processing resolution is capped
+to 1024 logical pixels on either axis to limit work on high-resolution
+sources. On the development PC, native 1024×576 diffusion alone measured
+roughly 18–23 ms per frame (not including OBS readback/upload). Do not
+assume 60 fps or zero latency; use larger dither pixels to reduce CPU work.
+The GPU-based modes have no CPU readback requirement.
+
+Older ordered/unordered mode IDs and their saved settings are preserved.
+These methods are available without enabling the optional FFmpeg codecs.
 
 ![dither filter preview](.github/assets/images/dither.png)
 
