@@ -126,7 +126,7 @@ void dither_filter_properties(retro_effects_filter_data_t *data, obs_properties_
 
 	// Dither Size
 	obs_property_t *p = obs_properties_add_float_slider(
-		props, "dither_size", obs_module_text("RetroEffects.Dither.Size"), 0.4, 10.0, 0.1);
+		props, "dither_size", obs_module_text("RetroEffects.Dither.Size"), 0.4, 128.0, 0.1);
 	obs_property_float_set_suffix(p, "px");
 
 	obs_properties_add_int_slider(props, "dither_color_steps", obs_module_text("RetroEffects.Dither.ColorSteps"), 1,
@@ -371,7 +371,7 @@ static bool dither_type_modified(obs_properties_t *props, obs_property_t *p, obs
 	setting_visibility("dither_round", !diffusion, props);
 	obs_property_t *size = obs_properties_get(props, "dither_size");
 	if (size)
-		obs_property_float_set_limits(size, diffusion ? 1.0 : 0.4, 10.0, 0.1);
+		obs_property_float_set_limits(size, diffusion ? 1.0 : 0.4, 128.0, 0.1);
 	switch (dither_type) {
 	case DITHER_TYPE_NONE:
 	case DITHER_TYPE_ORDERED:

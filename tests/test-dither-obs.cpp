@@ -211,6 +211,42 @@ int main(int argc, char **argv)
 	       blue_bright, int(blue_a == blue_b));
 	if (!mask_ok)
 		return 11;
+	// Exercise genuinely large 32px / 128px logical pixels through OBS
+	// rendering in both GPU and sequential CPU dithering paths.
+	std::vector<uint8_t> textured(W * H * 4);
+	for (int y = 0; y < H; ++y)
+		for (int x = 0; x < W; ++x) {
+			size_t i = ((size_t)y * W + x) * 4;
+			textured[i] = textured[i + 1] = textured[i + 2] =
+				(uint8_t)(25 + (x * 37 + y * 61 + x * y * 3) % 205);
+			textured[i + 3] = 255;
+		}
+	obs_enter_graphics();
+	gs_texture_set_image(active_input->texture, textured.data(), W * 4, false);
+	obs_leave_graphics();
+	for (int mode : {1, 2, 6, 12}) {
+		for (double size : {32.0, 128.0}) {
+			auto *config = obs_source_get_settings(filter);
+			obs_data_set_int(config, "dither_type", mode);
+			obs_data_set_double(config, "dither_size", size);
+			obs_source_update(filter, config);
+			obs_data_release(config);
+			std::this_thread::sleep_for(std::chrono::milliseconds(170));
+			std::vector<uint8_t> oversized;
+			if (!render_pixels(source, oversized) || oversized.size() != W * H * 4)
+				return 12;
+			int opaque = 0, valid = 0;
+			for (size_t i = 0; i < oversized.size(); i += 4) {
+				opaque += oversized[i + 3] > 250;
+				valid += oversized[i] < 20 || oversized[i] > 235;
+			}
+			bool successful = opaque >= W * H - 50 && valid >= W * H - 50;
+			printf("DITHER_LARGE_SIZE mode=%d size=%.0f opaque=%d binary=%d pass=%d\n", mode, size, opaque,
+			       valid, int(successful));
+			if (!successful)
+				return 13;
+		}
+	}
 	std::set<uint64_t> unique(fingerprints.begin(), fingerprints.end());
 	printf("DITHER_GPU_UNIQUE=%zu of 12\n", unique.size());
 	obs_set_output_source(0, nullptr);

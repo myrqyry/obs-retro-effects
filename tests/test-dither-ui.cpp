@@ -51,24 +51,27 @@ int main(int argc, char **argv)
 			}
 	}
 	auto *size = properties ? obs_properties_get(properties, "dither_size") : nullptr;
-	bool bounds_ok = size && obs_property_float_min(size) == 0.4;
+	bool bounds_ok = size && obs_property_float_min(size) == 0.4 && obs_property_float_max(size) == 128.0;
 	auto *bayer = properties ? obs_properties_get(properties, "dither_bayer_size") : nullptr;
 	bounds_ok = bounds_ok && !bayer; // All Bayer sizes belong in Dither Type.
 	auto *settings2 = obs_source_get_settings(filter);
 	obs_data_set_int(settings2, "dither_type", 6);
 	bool updated = mode && obs_property_modified(mode, settings2);
-	bounds_ok = bounds_ok && updated && obs_property_float_min(size) == 1.0;
+	bounds_ok = bounds_ok && updated && obs_property_float_min(size) == 1.0 &&
+		    obs_property_float_max(size) == 128.0;
 	auto *pixel_round = properties ? obs_properties_get(properties, "dither_round") : nullptr;
 	bounds_ok = bounds_ok && pixel_round && !obs_property_visible(pixel_round);
 	obs_data_set_int(settings2, "dither_type", 1);
 	updated = mode && obs_property_modified(mode, settings2);
-	bounds_ok = bounds_ok && updated && obs_property_float_min(size) == 0.4 && obs_property_visible(pixel_round);
+	bounds_ok = bounds_ok && updated && obs_property_float_min(size) == 0.4 &&
+		    obs_property_float_max(size) == 128.0 && obs_property_visible(pixel_round);
 	// Bayer 2x2 and 8x8 are GPU modes, so pixel rounding must remain
 	// available and the finer 0.4px dither size lower bound remains valid.
 	for (int bayer_mode : {9, 10}) {
 		obs_data_set_int(settings2, "dither_type", bayer_mode);
 		bool changed = mode && obs_property_modified(mode, settings2);
-		bool gpu_options = changed && obs_property_float_min(size) == 0.4 && obs_property_visible(pixel_round);
+		bool gpu_options = changed && obs_property_float_min(size) == 0.4 &&
+				   obs_property_float_max(size) == 128.0 && obs_property_visible(pixel_round);
 		bounds_ok = bounds_ok && gpu_options;
 		printf("DITHER_GPU_BAYER_OPTIONS mode=%d pass=%d\n", bayer_mode, int(gpu_options));
 	}
