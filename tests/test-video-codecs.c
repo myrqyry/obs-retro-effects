@@ -1,11 +1,31 @@
 #include "../src/codec/video-roundtrip.h"
 #include <libavcodec/avcodec.h>
+#include <libavutil/log.h>
 
+/* These regression checks must execute in RelWithDebInfo/Release too.
+ * The product's NDEBUG setting must not disable test assertions. */
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include <assert.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static int unsupported_rgb555_chroma_warnings = 0;
+static void collect_ffmpeg_messages(void *context, int level, const char *fmt, va_list args)
+{
+	char message[512];
+	va_list copy;
+	va_copy(copy, args);
+	vsnprintf(message, sizeof(message), fmt, copy);
+	va_end(copy);
+	if (strstr(message, "full chroma interpolation for destination format 'rgb555le' not yet implemented"))
+		++unsupported_rgb555_chroma_warnings;
+	av_log_default_callback(context, level, fmt, args);
+}
 
 static void input_frame(uint8_t *pixels, int w, int h, int frame)
 {
@@ -68,8 +88,44 @@ static uint64_t verify(enum retro_video_codec codec, int bitrate, int *decoded_f
 	return bytes_out;
 }
 
+/* Verify that direct RGB555 packing preserves channel order through the
+ * actual Microsoft Video 1 encoder/decoder (red is not blue, etc.). */
+static void verify_msvideo1_rgb_channels(void)
+{
+	struct retro_video_options options = retro_video_default_options(RETRO_VIDEO_MSVIDEO1);
+	struct retro_video *codec = retro_video_create(&options);
+	assert(codec);
+	const int w = options.width, h = options.height;
+	size_t n = (size_t)w * h * 4;
+	uint8_t *input = malloc(n), *output = malloc(n);
+	assert(input && output);
+	for (int frame = 0; frame < 9; ++frame) {
+		int dominant = frame % 3;
+		for (size_t i = 0; i < n; i += 4) {
+			input[i] = dominant == 0 ? 255 : 0;
+			input[i + 1] = dominant == 1 ? 255 : 0;
+			input[i + 2] = dominant == 2 ? 255 : 0;
+			input[i + 3] = 255;
+		}
+		int got = retro_video_process(codec, input, w * 4, output, w * 4);
+		assert(got == 1);
+		size_t pos = ((size_t)(h / 2) * w + w / 2) * 4;
+		uint8_t max_value = output[pos + dominant];
+		uint8_t other1 = output[pos + (dominant + 1) % 3];
+		uint8_t other2 = output[pos + (dominant + 2) % 3];
+		assert(max_value > other1 + 80);
+		assert(max_value > other2 + 80);
+		assert(output[pos + 3] == 255);
+	}
+	printf("RGB555_CHANNEL_ORDER_PASS\n");
+	retro_video_destroy(codec);
+	free(input);
+	free(output);
+}
+
 int main(void)
 {
+	av_log_set_callback(collect_ffmpeg_messages);
 	assert(retro_video_supported_size(RETRO_VIDEO_H263, 176, 144));
 	assert(!retro_video_supported_size(RETRO_VIDEO_H263, 320, 240));
 	assert(retro_video_supported_size(RETRO_VIDEO_MPEG4_PART2, 176, 144));
@@ -127,5 +183,8 @@ int main(void)
 		free(output);
 		free(input);
 	}
+	verify_msvideo1_rgb_channels();
+	printf("RGB555_UNSUPPORTED_CHROMA_WARNINGS=%d\n", unsupported_rgb555_chroma_warnings);
+	assert(unsupported_rgb555_chroma_warnings == 0);
 	return 0;
 }

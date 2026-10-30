@@ -176,10 +176,17 @@ struct retro_video *retro_video_create(const struct retro_video_options *options
 	if (av_frame_get_buffer(ctx->input, 32) < 0)
 		goto error;
 
-	ctx->rgba_to_yuv = sws_getContext(options->width, options->height, AV_PIX_FMT_RGBA, options->width,
-					  options->height, preset->input_format, SWS_BILINEAR, NULL, NULL, NULL);
-	if (!ctx->rgba_to_yuv)
-		goto error;
+	/* RGB555 is a packed, non-subsampled RGB pixel format. libswscale
+	 * currently reports an unsupported full-chroma interpolation path when
+	 * RGBA is sent directly to RGB555LE. Pack the 15-bit pixels ourselves,
+	 * retaining the actual pixel layout required by Microsoft Video 1. */
+	if (options->codec != RETRO_VIDEO_MSVIDEO1) {
+		ctx->rgba_to_yuv = sws_getContext(options->width, options->height, AV_PIX_FMT_RGBA, options->width,
+						  options->height, preset->input_format, SWS_BILINEAR, NULL, NULL,
+						  NULL);
+		if (!ctx->rgba_to_yuv)
+			goto error;
+	}
 
 	return ctx;
 error:
@@ -197,11 +204,29 @@ int retro_video_process(struct retro_video *ctx, const uint8_t *rgba, int input_
 	if (av_frame_make_writable(ctx->input) < 0)
 		return -1;
 
-	const uint8_t *source[4] = {rgba, NULL, NULL, NULL};
-	int strides[4] = {input_stride, 0, 0, 0};
-	if (sws_scale(ctx->rgba_to_yuv, source, strides, 0, ctx->encoder->height, ctx->input->data,
-		      ctx->input->linesize) != ctx->encoder->height)
-		return -1;
+	if (ctx->encode_pixel_format == AV_PIX_FMT_RGB555LE) {
+		for (int y = 0; y < ctx->encoder->height; ++y) {
+			const uint8_t *row = rgba + (size_t)y * (size_t)input_stride;
+			uint8_t *target = ctx->input->data[0] + (size_t)y * (size_t)ctx->input->linesize[0];
+			for (int x = 0; x < ctx->encoder->width; ++x) {
+				const uint8_t *px = row + (size_t)x * 4;
+				/* Round 8-bit RGB to 5 bits/channel. Little-endian packed RGB555:
+				 * bits 10..14 = red, 5..9 = green, 0..4 = blue. */
+				uint16_t red = ((uint16_t)px[0] * 31 + 127) / 255;
+				uint16_t green = ((uint16_t)px[1] * 31 + 127) / 255;
+				uint16_t blue = ((uint16_t)px[2] * 31 + 127) / 255;
+				uint16_t packed = (uint16_t)((red << 10) | (green << 5) | blue);
+				target[2 * x] = (uint8_t)(packed & 0xff);
+				target[2 * x + 1] = (uint8_t)(packed >> 8);
+			}
+		}
+	} else {
+		const uint8_t *source[4] = {rgba, NULL, NULL, NULL};
+		int strides[4] = {input_stride, 0, 0, 0};
+		if (sws_scale(ctx->rgba_to_yuv, source, strides, 0, ctx->encoder->height, ctx->input->data,
+			      ctx->input->linesize) != ctx->encoder->height)
+			return -1;
+	}
 
 	ctx->input->pts = ctx->pts++;
 	if (avcodec_send_frame(ctx->encoder, ctx->input) < 0)

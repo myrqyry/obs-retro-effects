@@ -1,5 +1,10 @@
 #include "../src/codec/video-roundtrip.h"
 
+/* These regression checks must execute in RelWithDebInfo/Release too.
+ * The product's NDEBUG setting must not disable test assertions. */
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
