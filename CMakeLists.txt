@@ -74,7 +74,7 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 # Authentic H.263 and MPEG-4 Part 2 encode/decode (opt-in).
-option(ENABLE_VIDEO_CODECS "Enable actual H.263/MPEG-4 Part 2 codecs" OFF)
+option(ENABLE_VIDEO_CODECS "Enable the eight-codec FFmpeg encoder/decoder gallery" OFF)
 option(ENABLE_H263_CODEC "Legacy alias for ENABLE_VIDEO_CODECS" OFF)
 if(ENABLE_H263_CODEC)
   set(ENABLE_VIDEO_CODECS ON)

@@ -1,32 +1,23 @@
-<!-- Title -->
 # OBS Retro Effects
 
-<p align="center">
-    <i align="center">Bringing the Totally Rad 80s and 90s back to life.</i>
-</p>
+*Bringing the totally rad '80s and '90s back to life.*
 
-<h4 align="center">
-    <a href="https://github.com/FiniteSingularity/obs-retro-effects/releases">
-        <img src="https://img.shields.io/github/v/release/finitesingularity/obs-retro-effects?filter=*&style=flat-square&label=Latest" alt="Latest release">
-    </a>
-    <img src="https://img.shields.io/badge/OBS-28_|_29_|_30-blue.svg?style=flat-square" alt="supports obs versions 28, 29, and 30">
-    <img src="https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white">
-    <img src="https://img.shields.io/badge/mac%20os-000000?style=flat-square&logo=apple&logoColor=white">
-    <img src="https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black"><br>
-    <a href="https://twitter.com/FiniteSingulrty">
-        <img src="https://img.shields.io/badge/Twitter-1DA1F2?style=flat-square&logo=twitter&logoColor=white">
-    </a>
-    <a href="https://twitch.tv/finitesingularity">
-        <img src="https://img.shields.io/badge/Twitch-9146FF?style=flat-square&logo=twitch&logoColor=white">
-    </a>
-</h4>
+> **Experimental fork of [FiniteSingularity/obs-retro-effects](https://github.com/FiniteSingularity/obs-retro-effects).**
+> These source changes are **not** an official upstream release. The
+> [upstream release downloads](https://github.com/FiniteSingularity/obs-retro-effects/releases)
+> do **not** contain the fork additions described below. The module ID
+> is unchanged, so **do not install both builds side by side**.
+> Fork-specific behavior has been tested locally on Linux, not certified
+> across the versions/platforms supported by upstream.
 
-> **Note**
-> While we only release new versions of Retro Effects after testing it on local hardware, there are bugs and issues that will slip through. If you happen to run into any issues, please [open an issue](https://github.com/finitesingularity/obs-retro-effects/issues) and we will work to resolve it.
+The baseline filters, original images, and plugin architecture belong to
+[FiniteSingularity's upstream project](https://github.com/FiniteSingularity/obs-retro-effects).
+[Upstream issues](https://github.com/FiniteSingularity/obs-retro-effects/issues)
+are for upstream releases; report fork-specific changes to the fork maintainer.
 
 ## Introduction
 
-Retro Effects is an OBS plug-in that provides several filters to simulate retro hardware (e.g.- CRTs, NTSC Signals, etc...) giving your OBS sources an authentic retro look/feel. Retro effects provides the following filters.
+Retro Effects is an OBS plug-in that provides several filters to simulate retro hardware (e.g.- CRTs, NTSC Signals, etc...) giving your OBS sources an authentic retro look/feel. Retro Effects provides the following filters. This fork extends Dither, Retro Codec, and VHS while retaining the upstream filters.
 
 
 - [Chromatic Aberration](#chromatic-aberration)
@@ -44,7 +35,111 @@ Retro Effects is an OBS plug-in that provides several filters to simulate retro 
 - [Scanlines](#scanlines)
 - [Digital Glitch](#digital-glitch)
 - [Analog Glitch](#analog-glitch)
+- [Fork additions](#fork-additions)
+- [Building and testing](#building-and-testing)
+- [Local installation and existing assets](#local-installation-and-existing-assets)
+- [Validation and limitations](#validation-and-limitations)
 - [Conclusion](#conclusion)
+
+## Fork additions
+
+Only the additions **tracked in this source branch** are summarized here,
+not changes from other local OBS installations.
+
+| Filter | What's new | Scope |
+| --- | --- | --- |
+| [Dither](#dither) | Twelve modes in a single dropdown: None/Posterize, Bayer 2×2/4×4/8×8, three directional 2×2 patterns, quasi-random, true void-and-cluster blue noise, and Floyd–Steinberg/Atkinson/Sierra Lite | GPU modes plus genuine CPU error diffusion; integer-only pixel size **1–128 px** |
+| [Retro Codec](#retro-codec) | Eight real FFmpeg encode/decode pipelines: H.263, MPEG-4 Part 2, Cinepak, Sorenson Video 1, Microsoft Video 1, FLV1, MPEG-1, Motion JPEG | Optional FFmpeg build, **off by default**; original shader RPZA retained |
+| [VHS](#vhs) | Optional VCR and camcorder-style bitmap OSD: transport status, tape speed, channel and simulated tape counter | **Off by default**; composited after upstream tape distortion |
+
+These are not complete recreations of particular cameras, VCR firmware,
+analog signals, or historical file/container formats.
+
+## Building and testing
+
+Use a **source checkout with this branch's commits**, not an upstream
+release download. The Linux build needs CMake 3.28+, Ninja, C/C++
+compilers, libobs development headers and libraries, and a compatible OBS
+runtime. Headless OBS rendering tests also need `xvfb-run` and a working
+OpenGL implementation.
+
+Dither and VHS additions (default build, **no FFmpeg required**):
+
+```bash
+cmake --preset ubuntu-x86_64 -DBUILD_TESTING=ON -DENABLE_VIDEO_CODECS=OFF
+cmake --build --preset ubuntu-x86_64 -j4
+ctest --test-dir build_x86_64 --output-on-failure
+```
+
+For the eight authentic video codec paths, additionally install the
+`libavcodec`, `libavutil`, and `libswscale` development libraries:
+
+```bash
+cmake --preset ubuntu-x86_64 -DBUILD_TESTING=ON -DENABLE_VIDEO_CODECS=ON
+cmake --build --preset ubuntu-x86_64 -j4
+ctest --test-dir build_x86_64 --output-on-failure
+```
+
+`ENABLE_H263_CODEC=ON` remains a legacy alias for enabling all eight
+codecs. No FFmpeg dependency is needed for the Dither or VHS additions.
+These Linux tests exercise native algorithms and real, headless OBS
+shader rendering/UI; enabling codecs adds round-trips and all eight
+codec OBS render tests. Compilation alone does not demonstrate that
+effects display correctly.
+
+## Local installation and existing assets
+
+The fork and upstream share **the same OBS plugin ID**. Back up your
+OBS configuration, plugin binary, and **entire plugin data directory**,
+including custom shaders/locales/fonts, before replacing anything.
+Shut down OBS when doing a manual install and restart it afterward;
+the running application does not reload plugin binaries.
+
+The verified development PC uses this user-local **legacy layout**:
+
+```text
+~/.config/obs-studio/plugins/obs-retro-effects/
+├── bin/64bit/obs-retro-effects.so
+└── data/
+    ├── locale/en-US.ini
+    └── shaders/...
+```
+
+The built binary is at `build_x86_64/obs-retro-effects.so` and
+matching resource files are in the checkout's `data/` directory.
+The plugin needs both the binary **and** matching data resources.
+Other OBS versions/packages and operating systems may use different
+installation layouts; see the CMake packaging definitions.
+
+**Do not blindly overwrite existing data.** Some local installations
+also include a separate, uncommitted VCR font-atlas and Macrovision
+experiment from another checkout. That older work is **not part of this
+branch**, even if its shader/assets are present in an installed copy.
+Back up and explicitly merge custom resources if needed.
+
+## Validation and limitations
+
+At the **October 30, 2026** local checkpoint, the codec-enabled Linux
+build passed **16/16 automated tests**, and the FFmpeg-disabled build
+passed **6/6**. Installed-path checks covered OSD, dithering, H.263
+and MJPEG. This is **not** a public release or cross-platform
+certification.
+
+- CPU error diffusion needs synchronous GPU readback, CPU processing
+  and upload; video encoding/decoding also adds synchronous render-thread
+  work. Long-session streaming performance and latency remain unverified.
+- The VHS OSD counter and transport are **simulated**, not linked to
+  playback of the underlying OBS source. The glyphs/layout are
+  generic hardware-inspired designs, not a specific vendor's firmware.
+- The eight real codecs require opt-in FFmpeg. Windows/macOS packages
+  containing them have not been produced or verified.
+- Existing screenshots below are **upstream** illustrations, not images
+  of the new fork-only modes.
+
+See the filter-specific sections for settings, implementation details,
+and caveats.
+
+---
 
 ## Chromatic Aberration
 This filter provides the abilility to shift the red, green, and blue color channels, either manually using the `Manual` type, or by simulating lens CA using the `Lens` type.
@@ -106,19 +201,24 @@ The default remains 1 px; larger values create chunkier logical pixels.
 Old fractional values are converted to the nearest whole pixel and
 clamped to that range when the filter loads. Dither method choices
 and other settings are preserved.
+
 The Bayer matrix size is integrated into the single dropdown. Saved Bayer
 sizes from the older two-control interface migrate without changing their
 visual result. Noise offsets apply to both the original Hilbert method and
 the tileable blue-noise mask. Pixel rounding is hidden only for CPU diffusion.
 
-The blue-noise mask can be reproduced by running
-scripts/generate-blue-noise-mask.py in a Python environment with compatible
-NumPy and SciPy. On the development machine, use
-PYTHONNOUSERSITE=1 python3 scripts/generate-blue-noise-mask.py.
+The blue-noise mask can be regenerated with Python, NumPy and SciPy
+(developer-only dependencies):
+
+```bash
+PYTHONNOUSERSITE=1 python3 scripts/generate-blue-noise-mask.py
+```
+
 The script validates 256 equal-population levels and low-frequency spectral
 suppression against a shuffled white-noise threshold mask at 25%, 50%, and
 75% coverage. The file src/filters/blue-noise-mask.generated.h is checked
 in so the installed plugin has **no runtime Python dependencies**.
+
 Reference: R. Ulichney, "Filter Design for Void-and-Cluster Dither Arrays",
 SID 1994, https://cv.ulichney.com/papers/1994-filter-design.pdf.
 
@@ -135,7 +235,7 @@ The GPU-based modes have no CPU readback requirement.
 Older ordered/unordered mode IDs and their saved settings are preserved.
 These methods are available without enabling the optional FFmpeg codecs.
 
-![dither filter preview](.github/assets/images/dither.png)
+![Upstream dither preview; new fork methods not shown](.github/assets/images/dither.png)
 
 ## CRT
 The CRT Filter simulates various effects/artifacts as seen on older Cathode Ray Tube displays. Taste the static.
@@ -188,7 +288,7 @@ Video conference like its 1995 and you've got a sweet new Connectix QuickCam!  T
 
 User adjustable parameters include pixel scale, colors per channel, quality, keyframe interval, and custom thresholds.
 
-![retro codec filter preview](.github/assets/images/retro-codec.png)
+![Upstream shader RPZA preview; new FFmpeg gallery not shown](.github/assets/images/retro-codec.png)
 
 ### Authentic video codec gallery (this fork; optional)
 
@@ -248,21 +348,10 @@ These filters process raw video pictures. They do not mux historical
 formats, recreate audio, simulate network errors, or emulate optics,
 camera sensors or particular consumer hardware.
 
-The gallery is **opt-in** and requires FFmpeg development libraries
-libavcodec, libavutil and libswscale. For a local Linux build:
-
-```bash
-cmake --preset ubuntu-x86_64 -DENABLE_VIDEO_CODECS=ON -DBUILD_TESTING=ON
-cmake --build --preset ubuntu-x86_64 -j4
-ctest --test-dir build_x86_64 --output-on-failure
-```
-
-The old ENABLE_H263_CODEC=ON flag is still a supported alias. Native
-tests encode and decode real bitstreams; Linux OBS tests also require
-xvfb-run and a C++ compiler to test actual plugin loading, changing
-decoded frames, 4:3 framing, settings migration, UI selection and RPZA
-fallback. The default build has no FFmpeg dependency. The new codecs
-are not yet packaged for Windows/macOS.
+The gallery is opt-in; see [Building and testing](#building-and-testing)
+for FFmpeg requirements and build/test commands. With codecs disabled,
+the filter retains its original shader RPZA behavior. The new codecs
+are not yet packaged or verified for Windows/macOS.
 
 **Unverified:** continuous streaming performance, latency (especially
 Cinepak CPU cost), how close output looks to specific hardware captures,
@@ -273,16 +362,17 @@ thread. Passing tests do not establish reliable long-running use.
 ## VHS
 Be kind, please rewind. The VHS filter emulates many artifacts seen when playing VHS tapes including tape wrinkle, frame jitter, pop lines, and head switching noise.  It gives the user many tweakable options:
 - Frame Jitter: min/max size, min/max period, min/max random interval.
-- Tape Wrinkle: Ocurrence probability, wrinkle size, duration.
+- Tape Wrinkle: occurrence probability, wrinkle size, duration.
 - Pop Lines: amount
-- Head Swithing Noise: Primary noise thickness, amount, Secondary noise thickness, horizontal offset, and amount.
+- Head Switching Noise: Primary noise thickness, amount, Secondary noise thickness, horizontal offset, and amount.
 
 ### VCR / Camcorder On-Screen Display (optional)
 
-The original tape-distortion shader is preserved. **Display Mode defaults to Off**
-on new and saved sources, so no overlay is added until you explicitly enable it.
+The original tape-distortion behavior is preserved. **Display Mode defaults
+to Off** on sources without an explicit OSD setting, so no new overlay
+appears until you enable it.
 
-- **Status for 5 s, then counter** (hardware-inspired default when enabled):
+- **Status for 5 s, then counter** (selectable hardware-inspired mode):
   changing display style, tape transport, channel or speed starts the status
   display for five seconds, then leaves the tape counter visible.
 - **Always show status:** persistent transport indicator, tape counter, speed,
@@ -299,13 +389,14 @@ on new and saved sources, so no overlay is added until you explicitly enable it.
   STOP/PAUSE, and moving at an approximate 4× during FF/REW. It is
   **not synchronized** to the source video timeline or to a physical VCR.
   **Set Counter (seconds)** explicitly changes its start position.
+  Switching simulated transport does not change the OBS source playback.
 
 This is a generic, period-inspired hardware display—not an exact font dump
 or firmware emulation of a specific Sony, Panasonic or JVC model.
 Behavior reference: JVC SR-TS1U operating manual (OSD briefly shows status,
 then retains the counter): https://pro.jvc.com/pro/attributes/vhs/manual/srts1u.pdf.
 
-![vhs filter preview](.github/assets/images/vhs.png)
+![Upstream VHS tape-effects preview; new OSD not shown](.github/assets/images/vhs.png)
 
 ## Bloom
 When is too bright not bright enough? When you want the bloom! The bloom filter will blow out those pesky highlights to give that Glam Cam feel to any OBS source.
