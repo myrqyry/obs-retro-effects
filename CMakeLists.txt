@@ -15,6 +15,113 @@ add_library(${CMAKE_PROJECT_NAME} MODULE)
 
 find_package(libobs REQUIRED)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
+target_sources(${PROJECT_NAME} PRIVATE src/filters/dither-diffusion.c src/filters/dither-diffusion.h
+ src/filters/dither-cpu-render.c src/filters/dither-cpu-render.h
+ src/filters/vhs-osd.c src/filters/vhs-osd.h)
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(test_dither_diffusion tests/test-dither-diffusion.c src/filters/dither-diffusion.c)
+  if(UNIX)
+    target_link_libraries(test_dither_diffusion PRIVATE m)
+  endif()
+  add_test(NAME dither_diffusion COMMAND test_dither_diffusion)
+  add_executable(test_blue_noise_mask tests/test-blue-noise-mask.c)
+  add_test(NAME blue_noise_mask COMMAND test_blue_noise_mask)
+  add_executable(test_vhs_osd tests/test-vhs-osd.c src/filters/vhs-osd.c)
+  add_test(NAME vhs_osd_unit COMMAND test_vhs_osd)
+
+endif()
+
+
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  find_program(XVFB_RUN xvfb-run)
+  file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/h263-test-home")
+  if(XVFB_RUN)
+        add_executable(test_dither_ui tests/test-dither-ui.cpp)
+        target_link_libraries(test_dither_ui PRIVATE OBS::libobs)
+        add_test(NAME dither_ui
+          COMMAND ${CMAKE_COMMAND} -E env
+            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            ${XVFB_RUN} -a
+            $<TARGET_FILE:test_dither_ui>
+            $<TARGET_FILE:${PROJECT_NAME}>
+            "${CMAKE_CURRENT_SOURCE_DIR}/data")
+        set_tests_properties(dither_ui PROPERTIES TIMEOUT 30)
+        add_executable(test_dither_obs tests/test-dither-obs.cpp)
+        target_link_libraries(test_dither_obs PRIVATE OBS::libobs)
+        add_test(NAME dither_obs_render
+          COMMAND ${CMAKE_COMMAND} -E env
+            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            ${XVFB_RUN} -a
+            $<TARGET_FILE:test_dither_obs>
+            $<TARGET_FILE:${PROJECT_NAME}>
+            "${CMAKE_CURRENT_SOURCE_DIR}/data")
+        set_tests_properties(dither_obs_render PROPERTIES TIMEOUT 45)
+        add_executable(test_vhs_obs tests/test-vhs-obs.cpp)
+        target_link_libraries(test_vhs_obs PRIVATE OBS::libobs)
+        add_test(NAME vhs_osd_obs_render
+          COMMAND ${CMAKE_COMMAND} -E env
+            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            ${XVFB_RUN} -a
+            $<TARGET_FILE:test_vhs_obs>
+            $<TARGET_FILE:${PROJECT_NAME}>
+            "${CMAKE_CURRENT_SOURCE_DIR}/data")
+        set_tests_properties(vhs_osd_obs_render PROPERTIES TIMEOUT 45)
+  endif()
+endif()
+
+# Authentic H.263 and MPEG-4 Part 2 encode/decode (opt-in).
+option(ENABLE_VIDEO_CODECS "Enable the eight-codec FFmpeg encoder/decoder gallery" OFF)
+option(ENABLE_H263_CODEC "Legacy alias for ENABLE_VIDEO_CODECS" OFF)
+if(ENABLE_H263_CODEC)
+  set(ENABLE_VIDEO_CODECS ON)
+endif()
+if(ENABLE_VIDEO_CODECS)
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(VIDEO_FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
+  target_sources(${PROJECT_NAME} PRIVATE
+    src/codec/video-roundtrip.c src/codec/video-roundtrip.h
+    src/codec/video-obs.c src/codec/video-obs.h)
+  target_link_libraries(${PROJECT_NAME} PRIVATE PkgConfig::VIDEO_FFMPEG)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_VIDEO_CODECS=1)
+
+  include(CTest)
+  if(BUILD_TESTING)
+    add_executable(test_h263_roundtrip tests/test-h263-roundtrip.c src/codec/video-roundtrip.c)
+    target_link_libraries(test_h263_roundtrip PRIVATE PkgConfig::VIDEO_FFMPEG)
+    add_test(NAME h263_roundtrip COMMAND test_h263_roundtrip)
+
+    add_executable(test_video_codecs tests/test-video-codecs.c src/codec/video-roundtrip.c)
+    target_link_libraries(test_video_codecs PRIVATE PkgConfig::VIDEO_FFMPEG)
+    add_test(NAME video_codecs_roundtrip COMMAND test_video_codecs)
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      find_program(XVFB_RUN xvfb-run)
+      if(XVFB_RUN)
+        add_executable(test_h263_obs tests/test-h263-obs.cpp)
+        target_link_libraries(test_h263_obs PRIVATE OBS::libobs)
+        file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/h263-test-home")
+        foreach(format h263 mpeg4 cinepak svq1 msvideo1 flv1 mpeg1 mjpeg)
+          add_test(
+            NAME ${format}_obs_render
+            COMMAND ${CMAKE_COMMAND} -E env
+              "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+              "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+              ${XVFB_RUN} -a
+              $<TARGET_FILE:test_h263_obs>
+              $<TARGET_FILE:${PROJECT_NAME}>
+              "${CMAKE_CURRENT_SOURCE_DIR}/data"
+              ${format}
+          )
+          set_tests_properties(${format}_obs_render PROPERTIES TIMEOUT 40)
+        endforeach()
+      endif()
+    endif()
+  endif()
+endif()
 
 if(ENABLE_FRONTEND_API)
   find_package(obs-frontend-api REQUIRED)

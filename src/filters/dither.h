@@ -7,6 +7,28 @@
 #define DITHER_TYPE_ORDERED_LABEL "RetroEffects.Dither.Ordered"
 #define DITHER_TYPE_UNORDERED 2
 #define DITHER_TYPE_UNORDERED_LABEL "RetroEffects.Dither.Unordered"
+/* Persisted mode IDs 1..8 remain unchanged for existing OBS sources. */
+#define DITHER_TYPE_DIRECTIONAL_H 3
+#define DITHER_TYPE_DIRECTIONAL_H_LABEL "RetroEffects.Dither.DirectionalHorizontal"
+#define DITHER_TYPE_DIRECTIONAL_V 4
+#define DITHER_TYPE_DIRECTIONAL_V_LABEL "RetroEffects.Dither.DirectionalVertical"
+#define DITHER_TYPE_DIRECTIONAL_D 5
+#define DITHER_TYPE_DIRECTIONAL_D_LABEL "RetroEffects.Dither.DirectionalDiagonal"
+#define DITHER_TYPE_FLOYD 6
+#define DITHER_TYPE_FLOYD_LABEL "RetroEffects.Dither.Floyd"
+#define DITHER_TYPE_ATKINSON 7
+#define DITHER_TYPE_ATKINSON_LABEL "RetroEffects.Dither.Atkinson"
+#define DITHER_TYPE_SIERRA_LITE 8
+#define DITHER_TYPE_SIERRA_LITE_LABEL "RetroEffects.Dither.SierraLite"
+#define DITHER_TYPE_BAYER_2 9
+#define DITHER_TYPE_BAYER_2_LABEL "RetroEffects.Dither.Bayer2"
+#define DITHER_TYPE_BAYER_8 10
+#define DITHER_TYPE_BAYER_8_LABEL "RetroEffects.Dither.Bayer8"
+/* New modes: never reuse existing saved OBS enum values. */
+#define DITHER_TYPE_NONE 11
+#define DITHER_TYPE_NONE_LABEL "RetroEffects.Dither.None"
+#define DITHER_TYPE_TRUE_BLUE_NOISE 12
+#define DITHER_TYPE_TRUE_BLUE_NOISE_LABEL "RetroEffects.Dither.TrueBlueNoise"
 
 struct dither_filter_data;
 typedef struct dither_filter_data dither_filter_data_t;
@@ -21,6 +43,16 @@ struct dither_filter_data {
 	gs_eparam_t *param_gamma;
 	gs_eparam_t *param_offset;
 	gs_eparam_t *param_color_steps;
+	gs_eparam_t *param_dither_variant;
+	gs_eparam_t *param_diffusion_prepass;
+	gs_eparam_t *param_processed_image;
+	gs_eparam_t *param_blue_noise_mask;
+	gs_texture_t *blue_noise_mask;
+	gs_texrender_t *diffusion_prepass;
+	gs_stagesurf_t *diffusion_stage;
+	gs_texture_t *diffusion_texture;
+	uint8_t *diffusion_source, *diffusion_output;
+	int diffusion_width, diffusion_height;
 
 	uint32_t dither_type;
 	uint32_t bayer_size;
@@ -37,19 +69,14 @@ struct dither_filter_data {
 
 extern void dither_create(retro_effects_filter_data_t *filter);
 extern void dither_destroy(retro_effects_filter_data_t *filter);
-extern void dither_unset_settings(retro_effects_filter_data_t* filter);
+extern void dither_unset_settings(retro_effects_filter_data_t *filter);
 
 extern void dither_filter_video_render(retro_effects_filter_data_t *data);
-extern void dither_filter_properties(retro_effects_filter_data_t *data,
-					obs_properties_t *props);
+extern void dither_filter_properties(retro_effects_filter_data_t *data, obs_properties_t *props);
 extern void dither_filter_defaults(obs_data_t *settings);
-extern void dither_filter_update(retro_effects_filter_data_t *data,
-				    obs_data_t *settings);
+extern void dither_filter_update(retro_effects_filter_data_t *data, obs_data_t *settings);
 static void dither_set_functions(retro_effects_filter_data_t *filter);
 static void dither_load_effect(dither_filter_data_t *filter);
-static bool dither_type_modified(obs_properties_t *props, obs_property_t *p,
-				 obs_data_t *settings);
-static bool dither_bayer_size_modified(void *data, obs_properties_t *props,
-				       obs_property_t *p, obs_data_t *settings);
-static bool dither_round_to_pixel_modified(void *data, obs_properties_t *props,
-				       obs_property_t *p, obs_data_t *settings);
+static bool dither_type_modified(obs_properties_t *props, obs_property_t *p, obs_data_t *settings);
+static bool dither_round_to_pixel_modified(void *data, obs_properties_t *props, obs_property_t *p,
+					   obs_data_t *settings);

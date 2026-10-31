@@ -1,0 +1,234 @@
+#include "../src/codec/video-roundtrip.h"
+#include <libavcodec/avcodec.h>
+#include <libavutil/log.h>
+
+/* These regression checks must execute in RelWithDebInfo/Release too.
+ * The product's NDEBUG setting must not disable test assertions. */
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+#include <assert.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static int unsupported_rgb555_chroma_warnings = 0;
+static void collect_ffmpeg_messages(void *context, int level, const char *fmt, va_list args)
+{
+	char message[512];
+	va_list copy;
+	va_copy(copy, args);
+	vsnprintf(message, sizeof(message), fmt, copy);
+	va_end(copy);
+	if (strstr(message, "full chroma interpolation for destination format 'rgb555le' not yet implemented"))
+		++unsupported_rgb555_chroma_warnings;
+	av_log_default_callback(context, level, fmt, args);
+}
+
+static void input_frame(uint8_t *pixels, int w, int h, int frame)
+{
+	for (int y = 0; y < h; ++y) {
+		for (int x = 0; x < w; ++x) {
+			const int off = (y * w + x) * 4;
+			const int move = frame * 3;
+			pixels[off] = (uint8_t)((x * 5 + move) % 256);
+			pixels[off + 1] = (uint8_t)((y * 3 + (x / 16) * 17 + move) % 256);
+			pixels[off + 2] = (uint8_t)((((x + move) / 16 + y / 16) % 2) * 200 + 25);
+			pixels[off + 3] = 255;
+		}
+	}
+}
+
+static uint64_t verify(enum retro_video_codec codec, int bitrate, int *decoded_frames)
+{
+	const int w = 176, h = 144;
+	const size_t bytes = (size_t)w * h * 4;
+	uint8_t *src = malloc(bytes), *dst = malloc(bytes);
+	assert(src && dst);
+	struct retro_video_options options =
+		{.codec = codec, .width = w, .height = h, .fps = 10, .bitrate = bitrate, .gop_size = 12};
+	struct retro_video *video = retro_video_create(&options);
+	assert(video);
+	int decoded_count = 0;
+	uint64_t lossy_difference = 0;
+	for (int frame = 0; frame < 48; ++frame) {
+		input_frame(src, w, h, frame);
+		memset(dst, 0, bytes);
+		const int got = retro_video_process(video, src, w * 4, dst, w * 4);
+		assert(got >= 0);
+		if (got != 1)
+			continue;
+		++decoded_count;
+		for (size_t i = 0; i < bytes; i += 4) {
+			assert(dst[i + 3] == 255);
+			lossy_difference += abs((int)src[i] - (int)dst[i]);
+		}
+	}
+	assert(decoded_count >= 45);
+	assert(lossy_difference > 3000);
+	assert(retro_video_encoded_packets(video) >= 45);
+	if (codec == RETRO_VIDEO_MPEG4_PART2) {
+		int profile = retro_video_decoded_profile(video);
+		int sar_num = retro_video_decoded_sar_num(video);
+		int sar_den = retro_video_decoded_sar_den(video);
+		printf("MPEG4_BITSTREAM profile=%d simple=%d sar=%d:%d\n", profile, FF_PROFILE_MPEG4_SIMPLE, sar_num,
+		       sar_den);
+		assert(profile == FF_PROFILE_MPEG4_SIMPLE);
+		assert(sar_num == 12 && sar_den == 11);
+	}
+	assert(retro_video_encoded_keyframes(video) >= 3);
+	assert(retro_video_encoded_bytes(video) > 0);
+	*decoded_frames = decoded_count;
+	uint64_t bytes_out = retro_video_encoded_bytes(video);
+	retro_video_destroy(video);
+	free(dst);
+	free(src);
+	return bytes_out;
+}
+
+/* Verify that direct RGB555 packing preserves channel order through the
+ * actual Microsoft Video 1 encoder/decoder (red is not blue, etc.). */
+static void verify_msvideo1_rgb_channels(void)
+{
+	struct retro_video_options options = retro_video_default_options(RETRO_VIDEO_MSVIDEO1);
+	struct retro_video *codec = retro_video_create(&options);
+	assert(codec);
+	const int w = options.width, h = options.height;
+	size_t n = (size_t)w * h * 4;
+	uint8_t *input = malloc(n), *output = malloc(n);
+	assert(input && output);
+	for (int frame = 0; frame < 9; ++frame) {
+		int dominant = frame % 3;
+		for (size_t i = 0; i < n; i += 4) {
+			input[i] = dominant == 0 ? 255 : 0;
+			input[i + 1] = dominant == 1 ? 255 : 0;
+			input[i + 2] = dominant == 2 ? 255 : 0;
+			input[i + 3] = 255;
+		}
+		int got = retro_video_process(codec, input, w * 4, output, w * 4);
+		assert(got == 1);
+		size_t pos = ((size_t)(h / 2) * w + w / 2) * 4;
+		uint8_t max_value = output[pos + dominant];
+		uint8_t other1 = output[pos + (dominant + 1) % 3];
+		uint8_t other2 = output[pos + (dominant + 2) % 3];
+		assert(max_value > other1 + 80);
+		assert(max_value > other2 + 80);
+		assert(output[pos + 3] == 255);
+	}
+	printf("RGB555_CHANNEL_ORDER_PASS\n");
+	retro_video_destroy(codec);
+	free(input);
+	free(output);
+}
+
+/* The MJPEG quantizer must change the real encoder's compressed output.
+ * Equal output would indicate a decorative slider disconnected from codec. */
+static uint64_t mjpeg_output_size(int quantizer)
+{
+	struct retro_video_options opts = retro_video_default_options(RETRO_VIDEO_MJPEG);
+	opts.mjpeg_quantizer = quantizer;
+	struct retro_video *codec = retro_video_create(&opts);
+	assert(codec);
+	size_t bytes = (size_t)opts.width * opts.height * 4;
+	uint8_t *src = malloc(bytes), *out = malloc(bytes);
+	assert(src && out);
+	for (int frame = 0; frame < 8; ++frame) {
+		input_frame(src, opts.width, opts.height, frame);
+		assert(retro_video_process(codec, src, opts.width * 4, out, opts.width * 4) == 1);
+	}
+	uint64_t size = retro_video_encoded_bytes(codec);
+	retro_video_destroy(codec);
+	free(out);
+	free(src);
+	return size;
+}
+
+static void verify_extra_encoder_options(void)
+{
+	uint64_t best = mjpeg_output_size(2);
+	uint64_t worst = mjpeg_output_size(28);
+	printf("MJPEG_QUANTIZER_BYTES quality2=%llu quality28=%llu\n", (unsigned long long)best,
+	       (unsigned long long)worst);
+	assert(best > worst * 1.10);
+
+	struct retro_video_options opts = retro_video_default_options(RETRO_VIDEO_SVQ1);
+	opts.svq1_motion_estimation = 2;
+	struct retro_video *svq = retro_video_create(&opts);
+	assert(svq);
+	retro_video_destroy(svq);
+	opts = retro_video_default_options(RETRO_VIDEO_CINEPAK);
+	opts.cinepak_codebook_passes = 4;
+	struct retro_video *cinepak = retro_video_create(&opts);
+	assert(cinepak);
+	retro_video_destroy(cinepak);
+	printf("CODEC_NATIVE_EXTRA_OPTIONS_PASS\n");
+}
+
+int main(void)
+{
+	av_log_set_callback(collect_ffmpeg_messages);
+	assert(retro_video_supported_size(RETRO_VIDEO_H263, 176, 144));
+	assert(!retro_video_supported_size(RETRO_VIDEO_H263, 320, 240));
+	assert(retro_video_supported_size(RETRO_VIDEO_MPEG4_PART2, 176, 144));
+	assert(retro_video_supported_size(RETRO_VIDEO_MPEG4_PART2, 320, 240));
+	assert(!retro_video_supported_size(RETRO_VIDEO_MPEG4_PART2, 177, 145));
+
+	int h263_frames = 0, mpeg4_frames = 0;
+	const uint64_t h263_bytes = verify(RETRO_VIDEO_H263, 64000, &h263_frames);
+	const uint64_t mpeg4_bytes = verify(RETRO_VIDEO_MPEG4_PART2, 64000, &mpeg4_frames);
+	printf("VIDEO_CODEC_PASS h263_frames=%d mpeg4_frames=%d h263_bytes=%llu mpeg4_bytes=%llu\n", h263_frames,
+	       mpeg4_frames, (unsigned long long)h263_bytes, (unsigned long long)mpeg4_bytes);
+	/* Real distinct encoder families, not parameter aliases of MPEG-4. */
+	const struct {
+		enum retro_video_codec id;
+		int width, height, fps, bitrate, gop;
+	} gallery[] = {
+		{RETRO_VIDEO_CINEPAK, 320, 240, 15, 300000, 15},  {RETRO_VIDEO_SVQ1, 320, 240, 15, 250000, 15},
+		{RETRO_VIDEO_MSVIDEO1, 160, 120, 15, 180000, 15}, {RETRO_VIDEO_FLV1, 320, 240, 15, 200000, 15},
+		{RETRO_VIDEO_MPEG1, 352, 288, 25, 1150000, 15},   {RETRO_VIDEO_MJPEG, 320, 240, 15, 1500000, 15}};
+	for (size_t c = 0; c < sizeof(gallery) / sizeof(gallery[0]); ++c) {
+		const struct retro_video_options opts = {.codec = gallery[c].id,
+							 .width = gallery[c].width,
+							 .height = gallery[c].height,
+							 .fps = gallery[c].fps,
+							 .bitrate = gallery[c].bitrate,
+							 .gop_size = gallery[c].gop};
+		assert(retro_video_supported_size(opts.codec, opts.width, opts.height));
+		struct retro_video *enc = retro_video_create(&opts);
+		assert(enc != NULL);
+		size_t count = (size_t)opts.width * opts.height * 4;
+		uint8_t *input = malloc(count), *output = malloc(count);
+		assert(input && output);
+		int pictures = 0;
+		unsigned long long difference = 0;
+		for (int frame = 0; frame < 18; ++frame) {
+			input_frame(input, opts.width, opts.height, frame);
+			memset(output, 0, count);
+			int result = retro_video_process(enc, input, opts.width * 4, output, opts.width * 4);
+			assert(result >= 0);
+			if (result == 1) {
+				++pictures;
+				for (size_t n = 0; n < count; n += 4) {
+					assert(output[n + 3] == 255);
+					difference += abs((int)input[n] - (int)output[n]);
+				}
+			}
+		}
+		printf("GALLERY_CODEC codec=%d pictures=%d packets=%llu bytes=%llu difference=%llu\n", opts.codec,
+		       pictures, (unsigned long long)retro_video_encoded_packets(enc),
+		       (unsigned long long)retro_video_encoded_bytes(enc), difference);
+		assert(pictures >= 15);
+		assert(retro_video_encoded_packets(enc) >= 15);
+		assert(difference > 3000);
+		retro_video_destroy(enc);
+		free(output);
+		free(input);
+	}
+	verify_extra_encoder_options();
+	verify_msvideo1_rgb_channels();
+	printf("RGB555_UNSUPPORTED_CHROMA_WARNINGS=%d\n", unsupported_rgb555_chroma_warnings);
+	assert(unsupported_rgb555_chroma_warnings == 0);
+	return 0;
+}
