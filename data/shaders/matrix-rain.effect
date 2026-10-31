@@ -102,16 +102,19 @@ float4 mainImage(VertData v_in) : TARGET
 
 	float g = min(gray(col.rgb), 0.99);
 
-	// g -> [0, 1]
-	// range -> [0.2, 0.8]
-	rain_scale *= (g / (max_brightness - min_brightness) + min_brightness);
+	// User black/white points define a bounded luminance range. Equal
+	// points must not produce NaNs, including for a black source pixel.
+	float mapped_luminance = saturate((g - min_brightness) /
+	                               max(max_brightness - min_brightness, EPS));
+	rain_scale *= mapped_luminance;
 	float char_uv = fmod((floor(char_noise * float(font_texture_num_chars)) + (rotation_speed * local_time - frac(rotation_speed * local_time))), font_texture_num_chars) / float(font_texture_num_chars);
 
 	float2 sampleUv = float2(char_uv, 0.0) + float2(1.0 / float(font_texture_num_chars), 1.0) * sub_pos;
 
 	float4 cha = font_image.Sample(textureSampler, sampleUv);
 	cha = float4(1.0 - cha.r, 1.0 - cha.g, 1.0 - cha.b, 1.0 - gray(cha.rgb));
-	float4 pixel = colorize ? float4(col.rgb / max(col.r, max(col.g, col.b)), col.a) : text_color;
+	float color_peak = max(max(col.r, max(col.g, col.b)), EPS);
+	float4 pixel = colorize ? float4(col.rgb / color_peak, col.a) : text_color;
 	pixel = rain > 0.5 ? (pixel * (1.0 - active_rain_brightness) + float4(1.0, 1.0, 1.0, pixel.a) * active_rain_brightness) : pixel;
 	rain_scale = rain > 0.5 ? 1.0 : rain_scale;
 	return cha * rain_scale * pixel + (1.0 - cha * rain_scale) * background_color;

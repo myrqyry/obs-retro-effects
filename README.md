@@ -279,6 +279,11 @@ It might not teach the user Kung-Fu but it will definitely make them say "Woahh!
 - Rain Trail fade distance
 - Rain drop speed
 - Charcater bloom radius, threshold, and intensity.
+
+You can also [generate a custom character atlas locally](docs/MATRIX_RAIN_GLYPHS.md)
+from an installed font and a string of glyphs, without using the external web
+generator. The local script outputs a PNG for the existing **Custom Character
+Texture** control; optionally, it registers a named built-in set for the next build.
 - If you've read this far, you realize it is not just a movie file running in the background.
 
 ![matrix rain filter preview](.github/assets/images/matrix-rain.png)

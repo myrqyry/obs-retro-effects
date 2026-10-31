@@ -84,5 +84,5 @@ static void matrix_rain_load_effect(matrix_rain_filter_data_t *filter);
 static bool setting_char_set_modified(obs_properties_t *props,
 				      obs_property_t *property,
 				      obs_data_t *settings);
-void set_character_texture(matrix_rain_filter_data_t *filter,
+bool set_character_texture(matrix_rain_filter_data_t *filter,
 			   const char *filename, float num_chars);

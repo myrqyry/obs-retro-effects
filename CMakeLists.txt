@@ -20,6 +20,17 @@ target_sources(${PROJECT_NAME} PRIVATE src/filters/dither-diffusion.c src/filter
  src/filters/vhs-osd.c src/filters/vhs-osd.h)
 include(CTest)
 if(BUILD_TESTING)
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME matrix_rain_source_contract
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test-matrix-rain-contract.py)
+    execute_process(COMMAND ${Python3_EXECUTABLE} -c "import PIL"
+      RESULT_VARIABLE MATRIX_RAIN_PILLOW_AVAILABLE OUTPUT_QUIET ERROR_QUIET)
+    if(MATRIX_RAIN_PILLOW_AVAILABLE EQUAL 0)
+      add_test(NAME matrix_rain_glyph_atlas
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test-matrix-glyph-atlas.py)
+    endif()
+  endif()
   add_executable(test_dither_diffusion tests/test-dither-diffusion.c src/filters/dither-diffusion.c)
   if(UNIX)
     target_link_libraries(test_dither_diffusion PRIVATE m)
@@ -59,6 +70,17 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
             $<TARGET_FILE:${PROJECT_NAME}>
             "${CMAKE_CURRENT_SOURCE_DIR}/data")
         set_tests_properties(dither_obs_render PROPERTIES TIMEOUT 45)
+        add_executable(test_matrix_rain_obs tests/test-matrix-rain-obs.cpp)
+        target_link_libraries(test_matrix_rain_obs PRIVATE OBS::libobs)
+        add_test(NAME matrix_rain_obs_render
+          COMMAND ${CMAKE_COMMAND} -E env
+            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            ${XVFB_RUN} -a
+            $<TARGET_FILE:test_matrix_rain_obs>
+            $<TARGET_FILE:${PROJECT_NAME}>
+            "${CMAKE_CURRENT_SOURCE_DIR}/data")
+        set_tests_properties(matrix_rain_obs_render PROPERTIES TIMEOUT 45)
         add_executable(test_vhs_obs tests/test-vhs-obs.cpp)
         target_link_libraries(test_vhs_obs PRIVATE OBS::libobs)
         add_test(NAME vhs_osd_obs_render
