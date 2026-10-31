@@ -241,7 +241,10 @@ float4 ApplyTrueBlueNoise(float4 color, float2 uv)
 {
 	float2 pixel = pxFromUv(uv);
 	float2 cell = mod(pixel - offset, float2(64.0, 64.0));
-	float threshold = real_blue_noise_mask.Sample(pointSampler, (cell + 0.5) / 64.0).r;
+	// R8 samples are normalized by 255. Remap their 256 ranks to bin centers
+	// strictly inside [0, 1), so a mask value of 255 cannot brighten black.
+	float rank = real_blue_noise_mask.Sample(pointSampler, (cell + 0.5) / 64.0).r * 255.0;
+	float threshold = (rank + 0.5) / 256.0;
 	color.rgb = quantise(color.rgb, threshold);
 	return color;
 }

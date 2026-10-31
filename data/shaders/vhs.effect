@@ -76,8 +76,14 @@ float4 mainImage(VertData v_in) : TARGET
 	// Hardware-generated OSD is composited AFTER tape playback distortion.
 	// It must never be displaced by jitter, tracking or head switching.
 	if (osd_enabled > 0.5) {
-		float4 textPixel=osd_image.Sample(osdSampler,v_in.uv);
-		color.rgb=lerp(color.rgb,textPixel.rgb,textPixel.a);
+		float4 textPixel = osd_image.Sample(osdSampler, v_in.uv);
+		float coverage = saturate(textPixel.a);
+		float out_alpha = coverage + color.a * (1.0 - coverage);
+		// Straight-alpha source-over: OSD glyphs stay opaque over transparent
+		// footage and translucent glyph edges avoid dark halos.
+		float3 premult_rgb = textPixel.rgb * coverage + color.rgb * color.a * (1.0 - coverage);
+		color.rgb = out_alpha > 0.0 ? premult_rgb / out_alpha : float3(0.0, 0.0, 0.0);
+		color.a = out_alpha;
 	}
 	return color;
 }

@@ -211,6 +211,24 @@ int main(int argc, char **argv)
 	       blue_bright, int(blue_a == blue_b));
 	if (!mask_ok)
 		return 11;
+	// Every completely black source pixel must remain black in real blue-noise
+	// mode, including when the R8 mask contains the byte value 255.
+	std::vector<uint8_t> black(W * H * 4, 0);
+	for (size_t i = 3; i < black.size(); i += 4)
+		black[i] = 255;
+	obs_enter_graphics();
+	gs_texture_set_image(active_input->texture, black.data(), W * 4, false);
+	obs_leave_graphics();
+	std::vector<uint8_t> black_render;
+	if (!select_and_draw(12, black_render))
+		return 14;
+	size_t black_speckles = 0;
+	for (size_t i = 0; i < black_render.size(); i += 4)
+		black_speckles += black_render[i] > 20 || black_render[i + 1] > 20 || black_render[i + 2] > 20;
+	printf("DITHER_BLUE_BLACK_SPECKLES=%zu\n", black_speckles);
+	if (black_speckles)
+		return 15;
+
 	// Exercise genuinely large 32px / 128px logical pixels through OBS
 	// rendering in both GPU and sequential CPU dithering paths.
 	std::vector<uint8_t> textured(W * H * 4);

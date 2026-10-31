@@ -128,6 +128,32 @@ int main(int argc, char **argv)
 		bounds_ok = bounds_ok && migrated;
 		printf("DITHER_LEGACY_BAYER_SIZE=%d MIGRATION=%d\n", old_size, int(migrated));
 	}
+	// Unordered presets may retain a legacy Bayer size. That key must
+	// disappear on initial load, or a later 4x4 selection is overridden.
+	for (int old_size : {2, 8}) {
+		auto *legacy = obs_data_create();
+		obs_data_set_int(legacy, "filter_type", 5);
+		obs_data_set_int(legacy, "dither_type", 2); // old Unordered
+		obs_data_set_int(legacy, "dither_bayer_size", old_size);
+		auto *legacy_filter =
+			obs_source_create("obs_retro_effects_filter", "unordered-preset", legacy, nullptr);
+		obs_data_release(legacy);
+		std::this_thread::sleep_for(std::chrono::milliseconds(130));
+		auto *saved = legacy_filter ? obs_source_get_settings(legacy_filter) : nullptr;
+		bool migrated = saved && obs_data_get_int(saved, "dither_type") == 2 &&
+				!obs_data_has_user_value(saved, "dither_bayer_size");
+		if (saved) {
+			obs_data_set_int(saved, "dither_type", 1); // explicitly select Bayer 4x4
+			obs_source_update(legacy_filter, saved);
+			std::this_thread::sleep_for(std::chrono::milliseconds(130));
+			migrated = migrated && obs_data_get_int(saved, "dither_type") == 1;
+			obs_data_release(saved);
+		}
+		if (legacy_filter)
+			obs_source_release(legacy_filter);
+		printf("DITHER_UNORDERED_LEGACY_BAYER=%d PRESERVES_NEW_SELECTION=%d\n", old_size, int(migrated));
+		bounds_ok = bounds_ok && migrated;
+	}
 	for (int extra : {11, 12}) {
 		obs_data_t *option = obs_source_get_settings(filter);
 		obs_data_set_int(option, "dither_type", extra);

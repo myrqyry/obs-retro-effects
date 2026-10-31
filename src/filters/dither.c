@@ -62,13 +62,17 @@ void dither_filter_update(retro_effects_filter_data_t *data, obs_data_t *setting
 	 * in a separate option. Migrate once, then remove the legacy key so
 	 * choosing Bayer 4x4 later cannot be remapped unexpectedly. */
 	int selected = (int)obs_data_get_int(settings, "dither_type");
-	if (selected == DITHER_TYPE_ORDERED && obs_data_has_user_value(settings, "dither_bayer_size")) {
-		int legacy_size = (int)obs_data_get_int(settings, "dither_bayer_size");
-		if (legacy_size == 2)
-			selected = DITHER_TYPE_BAYER_2;
-		else if (legacy_size == 8)
-			selected = DITHER_TYPE_BAYER_8;
-		obs_data_set_int(settings, "dither_type", selected);
+	if (obs_data_has_user_value(settings, "dither_bayer_size")) {
+		if (selected == DITHER_TYPE_ORDERED) {
+			int legacy_size = (int)obs_data_get_int(settings, "dither_bayer_size");
+			if (legacy_size == 2)
+				selected = DITHER_TYPE_BAYER_2;
+			else if (legacy_size == 8)
+				selected = DITHER_TYPE_BAYER_8;
+			obs_data_set_int(settings, "dither_type", selected);
+		}
+		/* Even a legacy Unordered preset can contain this key. Clear it
+		 * now, rather than remapping a future deliberate Bayer selection. */
 		obs_data_unset_user_value(settings, "dither_bayer_size");
 	}
 	/* Recompile only when the active ordered Bayer matrix changes.
