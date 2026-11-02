@@ -42,5 +42,5 @@ if __name__ == "__main__":
         raise SystemExit("Usage: check_source_archive.py <archive.tar.xz>")
     try:
         verify(sys.argv[1])
-    except (ValueError, tarfile.TarError) as ex:
+    except (ValueError, tarfile.TarError, OSError) as ex:
         raise SystemExit(f"FAIL: {ex}")

@@ -235,7 +235,10 @@ jobs:
         shell: bash
         run: |
           archive="$(find release -maxdepth 1 -name '*-source.tar.xz' -print -quit)"
-          test -n "$archive" && test -s "$archive"
+          if [[ -z "$archive" || ! -s "$archive" ]]; then
+            echo "::error::Source archive not found or empty"
+            exit 1
+          fi
           python3 tests/check_source_archive.py "$archive"
 
       - name: Upload Source Tarball 🗜️
