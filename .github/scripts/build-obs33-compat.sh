@@ -28,7 +28,7 @@ cmake -S "$obs_source" -B "$obs_build" -G Ninja \
   -DENABLE_PLUGINS:BOOL=OFF \
   -DENABLE_FRONTEND:BOOL=OFF
 
-cmake --build "$obs_build" --target libobs-opengl --parallel
+cmake --build "$obs_build" --target obs-frontend-api libobs-opengl --parallel
 cmake --install "$obs_build" --component Development --config Release --prefix "$obs_sdk"
 cmake --install "$obs_build" --component Runtime --config Release --prefix "$obs_sdk"
 
