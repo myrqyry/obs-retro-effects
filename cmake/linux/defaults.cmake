@@ -35,6 +35,25 @@ set(
   \\.github/
   \\.gitignore
   \\.ccache/
+  \\.deps/
+  \\.meristem/local/
+  /build/
+  /build-test/
+  /build_test/
+  /tests/build/
+  /install/
+  /\\.cache/
+  /memory/
+  /\\.grepai/
+  /mcp\\.db$
+  /SESSION-STATE\\.md$
+  /SOUL\\.md$
+  /USER\\.md$
+  /MEMORY\\.md$
+  /HEARTBEAT\\.md$
+  /\\.env
+  \\.pem$
+  \\.key$
   build_.*
   cmake/\\.CMakeBuildNumber
   release/
