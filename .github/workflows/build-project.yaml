@@ -217,12 +217,29 @@ jobs:
           target: x86_64
           config: ${{ needs.check-event.outputs.config }}
 
+      - name: Seed source-package privacy canaries
+        shell: bash
+        run: |
+          mkdir -p .meristem/local .deps/ci-source-canary
+          printf 'SYNTHETIC_NOT_PRIVATE\n' > .meristem/local/.source-privacy-canary
+          printf 'SYNTHETIC_NOT_PRIVATE\n' > .deps/ci-source-canary/asset
+
       - name: Package Plugin 📀
         uses: ./.github/actions/package-plugin
         with:
           target: x86_64
           config: ${{ needs.check-event.outputs.config }}
           package: true
+
+      - name: Verify source-package privacy
+        shell: bash
+        run: |
+          archive="$(find release -maxdepth 1 -name '*-source.tar.xz' -print -quit)"
+          if [[ -z "$archive" || ! -s "$archive" ]]; then
+            echo "::error::Source archive not found or empty"
+            exit 1
+          fi
+          python3 tests/check_source_archive.py "$archive"
 
       - name: Upload Source Tarball 🗜️
         uses: actions/upload-artifact@v6

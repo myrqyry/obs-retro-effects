@@ -28,16 +28,41 @@ endif()
 set(CPACK_OUTPUT_FILE_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/release")
 
 set(CPACK_SOURCE_GENERATOR "TXZ")
+
+# CPack matches ignore regexes against absolute paths. Escape and anchor the
+# source root so a parent directory named e.g. "build" cannot hide the tree.
+set(_cpack_source_root_regex "${CMAKE_CURRENT_SOURCE_DIR}")
+string(REGEX REPLACE [[([][+.*^$()|?\\])]] [[\\\1]] _cpack_source_root_regex "${_cpack_source_root_regex}")
+
 set(
   CPACK_SOURCE_IGNORE_FILES
   ".*~$"
-  \\.git/
-  \\.github/
-  \\.gitignore
-  \\.ccache/
+  "${_cpack_source_root_regex}/\\.git/"
+  "${_cpack_source_root_regex}/\\.github/"
+  "${_cpack_source_root_regex}/\\.gitignore$"
+  "${_cpack_source_root_regex}/\\.ccache/"
+  "${_cpack_source_root_regex}/\\.deps/"
+  "${_cpack_source_root_regex}/\\.meristem/local/"
+  "${_cpack_source_root_regex}/build/"
+  "${_cpack_source_root_regex}/build-test/"
+  "${_cpack_source_root_regex}/build_test/"
+  "${_cpack_source_root_regex}/tests/build/"
+  "${_cpack_source_root_regex}/install/"
+  "${_cpack_source_root_regex}/\\.cache/"
+  "${_cpack_source_root_regex}/memory/"
+  "${_cpack_source_root_regex}/\\.grepai/"
+  /mcp\\.db$
+  /SESSION-STATE\\.md$
+  /SOUL\\.md$
+  /USER\\.md$
+  /MEMORY\\.md$
+  /HEARTBEAT\\.md$
+  /\\.env
+  \\.pem$
+  \\.key$
   build_.*
   cmake/\\.CMakeBuildNumber
-  release/
+  "${_cpack_source_root_regex}/release/"
 )
 
 # Build .deb per install component: Modern for OBS 33+ and Legacy for Pre 33
