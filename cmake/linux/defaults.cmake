@@ -32,13 +32,7 @@ set(CPACK_SOURCE_GENERATOR "TXZ")
 # CPack matches ignore regexes against absolute paths. Escape and anchor the
 # source root so a parent directory named e.g. "build" cannot hide the tree.
 set(_cpack_source_root_regex "${CMAKE_CURRENT_SOURCE_DIR}")
-string(
-  REGEX REPLACE
-  [[([][+.*^$()|?\\])]]
-  [[\\\1]]
-  _cpack_source_root_regex
-  "${_cpack_source_root_regex}"
-)
+string(REGEX REPLACE [[([][+.*^$()|?\\])]] [[\\\1]] _cpack_source_root_regex "${_cpack_source_root_regex}")
 
 set(
   CPACK_SOURCE_IGNORE_FILES
