@@ -1,0 +1,35 @@
+name: OBS 33 compatibility
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: obs33-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  stable-obs33:
+    name: OBS 33.0.1 / Ubuntu 26.04
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install OBS build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build extra-cmake-modules pkg-config \
+            libavcodec-dev libavformat-dev libavutil-dev \
+            libswresample-dev libswscale-dev \
+            libpulse-dev libasound2-dev libjansson-dev libsimde-dev \
+            libdrm-dev libegl-dev libgl-dev libopengl-dev libwayland-dev wayland-protocols \
+            libxkbcommon-dev \
+            uthash-dev uuid-dev libx11-dev libx11-xcb-dev libxcb1-dev zlib1g-dev
+      - name: Build plugin against stable OBS 33
+        run: .github/scripts/build-obs33-compat.sh
