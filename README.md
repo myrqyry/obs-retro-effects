@@ -15,6 +15,21 @@ The baseline filters, original images, and plugin architecture belong to
 [Upstream issues](https://github.com/FiniteSingularity/obs-retro-effects/issues)
 are for upstream releases; report fork-specific changes to the fork maintainer.
 
+## Effect hotkeys (fork)
+
+Every Retro Effects filter instance exposes **Enable effect** and
+**Disable effect** under its name in OBS Settings > Hotkeys. Assign
+both to one key for a toggle, or bind them separately. No default key
+is assigned. Bindings follow the filter when renamed or when its retro
+effect type changes, and are saved by OBS with the scene collection.
+
+The native `effect_hotkeys_obs` regression verifies independent
+instances, paired-key toggle, repeat/release, save/reload and removal.
+It also covers removing a filter before its first deferred update,
+which previously could dereference a null cleanup callback.
+Inspired by Spectrum's [source hooks](https://github.com/Voidscape-Development/Spectrum/blob/8af962d220c23e7ee3bf1bd78808887203a85950/src/common/source-hooks.c),
+using this fork's existing filter lifecycle rather than a global wrapper.
+
 ## Introduction
 
 Retro Effects is an OBS plug-in that provides several filters to simulate retro hardware (e.g.- CRTs, NTSC Signals, etc...) giving your OBS sources an authentic retro look/feel. Retro Effects provides the following filters. This fork extends Dither, Retro Codec, and VHS while retaining the upstream filters.

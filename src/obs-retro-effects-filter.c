@@ -1,4 +1,5 @@
 #include "obs-retro-effects-filter.h"
+#include "effect-hotkeys.h"
 #include "obs-retro-effects.h"
 #include "filters/analog-glitch.h"
 #include "filters/frame-skip.h"
@@ -65,6 +66,7 @@ static void *retro_effects_filter_create(obs_data_t *settings,
 
 	load_output_effect(filter);
 	obs_source_update(source, settings);
+	filter->base->effect_hotkeys = effect_hotkeys_register(source);
 
 	return filter;
 }
@@ -73,6 +75,7 @@ static void retro_effects_filter_destroy(void *data)
 {
 	// This function should clear up all memory the plugin uses.
 	retro_effects_filter_data_t *filter = data;
+	effect_hotkeys_unregister(filter->base->effect_hotkeys);
 
 	obs_enter_graphics();
 	if (filter->base->input_texrender) {
@@ -86,7 +89,9 @@ static void retro_effects_filter_destroy(void *data)
 	}
 	obs_leave_graphics();
 
-	filter->filter_destroy(filter);
+	/* OBS can destroy an instance before its first deferred update. */
+	if (filter->filter_destroy)
+		filter->filter_destroy(filter);
 	blur_destroy(filter);
 	bloom_destroy(filter);
 

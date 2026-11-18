@@ -11,6 +11,7 @@ typedef struct base_filter_data base_filter_data_t;
 
 struct base_filter_data {
 	obs_source_t *context;
+	obs_hotkey_pair_id effect_hotkeys;
 
 	bool input_texture_generated;
 	gs_texrender_t *input_texrender;

@@ -48,6 +48,17 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
   find_program(XVFB_RUN xvfb-run)
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/h263-test-home")
   if(XVFB_RUN)
+        add_executable(test_effect_hotkeys tests/test-effect-hotkeys.cpp)
+        target_link_libraries(test_effect_hotkeys PRIVATE OBS::libobs)
+        add_test(NAME effect_hotkeys_obs
+          COMMAND ${CMAKE_COMMAND} -E env
+            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            ${XVFB_RUN} -a
+            $<TARGET_FILE:test_effect_hotkeys>
+            $<TARGET_FILE:${PROJECT_NAME}>
+            "${CMAKE_CURRENT_SOURCE_DIR}/data" obs_retro_effects_filter)
+        set_tests_properties(effect_hotkeys_obs PROPERTIES TIMEOUT 30)
         add_executable(test_dither_ui tests/test-dither-ui.cpp)
         target_link_libraries(test_dither_ui PRIVATE OBS::libobs)
         add_test(NAME dither_ui
