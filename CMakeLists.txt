@@ -114,14 +114,20 @@ if(ENABLE_H263_CODEC)
 endif()
 if(ENABLE_VIDEO_CODECS)
   include(RetroFFmpeg)
+  find_package(Threads REQUIRED)
   target_sources(${PROJECT_NAME} PRIVATE
     src/codec/video-roundtrip.c src/codec/video-roundtrip.h
-    src/codec/video-obs.c src/codec/video-obs.h)
-  target_link_libraries(${PROJECT_NAME} PRIVATE retro_ffmpeg)
+    src/codec/video-obs.c src/codec/video-obs.h
+    src/codec/codec-worker.cpp src/codec/codec-worker.h)
+  target_link_libraries(${PROJECT_NAME} PRIVATE retro_ffmpeg Threads::Threads)
   target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_VIDEO_CODECS=1)
 
   include(CTest)
   if(BUILD_TESTING)
+    add_executable(test_codec_worker tests/test-codec-worker.cpp src/codec/codec-worker.cpp src/codec/video-roundtrip.c)
+    target_link_libraries(test_codec_worker PRIVATE retro_ffmpeg Threads::Threads)
+    add_test(NAME codec_worker COMMAND test_codec_worker)
+
     add_executable(test_h263_roundtrip tests/test-h263-roundtrip.c src/codec/video-roundtrip.c)
     target_link_libraries(test_h263_roundtrip PRIVATE retro_ffmpeg)
     add_test(NAME h263_roundtrip COMMAND test_h263_roundtrip)
@@ -150,6 +156,15 @@ if(ENABLE_VIDEO_CODECS)
           )
           set_tests_properties(${format}_obs_render PROPERTIES TIMEOUT 40)
         endforeach()
+        add_test(NAME codec_portrait_render
+          COMMAND ${CMAKE_COMMAND} -E env
+            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            ${XVFB_RUN} -a
+            $<TARGET_FILE:test_h263_obs>
+            $<TARGET_FILE:${PROJECT_NAME}>
+            "${CMAKE_CURRENT_SOURCE_DIR}/data" mpeg4 portrait)
+        set_tests_properties(codec_portrait_render PROPERTIES TIMEOUT 40)
       endif()
     endif()
   endif()

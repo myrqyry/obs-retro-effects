@@ -11,6 +11,7 @@ on:
       - 'tests/codec-native/**'
       - 'tests/test-video-codecs.c'
       - 'tests/test-h263-roundtrip.c'
+      - 'tests/test-codec-worker.cpp'
       - '.github/workflows/codec-native-qualification.yml'
       - '.github/scripts/qualify-native-codecs.py'
 

@@ -12,7 +12,8 @@
 #include <thread>
 #include <vector>
 
-static constexpr int WIDTH = 256, HEIGHT = 144;
+static int WIDTH = 256, HEIGHT = 144;
+static std::atomic<bool> alpha_test{false};
 struct TestInput {
 	gs_texture_t *texture;
 	std::atomic<int> ticks{0};
@@ -77,7 +78,11 @@ static void input_render(void *data, gs_effect_t *)
 			rgba[i] = uint8_t((x * 3 + (y / 16) * 20 + elapsed * 4) & 255);
 			rgba[i + 1] = uint8_t((y * 2 + (x / 16) * 10) & 255);
 			rgba[i + 2] = uint8_t(((x / 16 + y / 16) % 2) ? 200 : 30);
-			rgba[i + 3] = 255;
+			if(alpha_test.load()){
+				const unsigned a=x<WIDTH/4?0:x<WIDTH*3/4?128:255;
+				for(int c=0;c<3;c++)rgba[i+c]=uint8_t(unsigned(rgba[i+c])*a/255);
+				rgba[i+3]=uint8_t(a);
+			}else rgba[i + 3] = 255;
 		}
 	gs_texture_set_image(in->texture, rgba.data(), WIDTH * 4, false);
 	obs_source_draw(in->texture, 0, 0, WIDTH, HEIGHT, false);
@@ -102,13 +107,17 @@ int main(int argc, char **argv)
 				   {"msvideo1", 6, 15, 180000, 15}, {"flv1", 7, 15, 200000, 15},
 				   {"mpeg1", 8, 25, 1150000, 15},   {"mjpeg", 9, 15, 1500000, 15}};
 	const CodecCase *selected = nullptr;
-	if (argc == 4)
+	if (argc == 4 || argc == 5)
 		for (const auto &item : cases)
 			if (std::strcmp(argv[3], item.name) == 0)
 				selected = &item;
 	if (!selected) {
 		std::fprintf(stderr, "Usage: %s <plugin.so> <data-dir> <codec name>\n", argv[0]);
 		return 2;
+	}
+	if(argc==5){
+		if(std::strcmp(argv[4],"portrait")!=0)return 2;
+		WIDTH=144;HEIGHT=256;
 	}
 	setbuf(stdout, nullptr);
 	const int selected_codec = selected->ui_id;
@@ -155,8 +164,8 @@ int main(int argc, char **argv)
 	obs_source_filter_add(source, filter);
 	obs_set_output_source(0, source);
 	int center_luma = 0, bar_luma = 0, nonzero_frames = 0;
-	int first_red = -1, last_red = -1;
-	for (int attempt = 0; attempt < 7; attempt++) {
+	int first_red = -1, last_red = -1, min_red=255, max_red=0;
+	for (int attempt = 0; attempt < 18; attempt++) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(120));
 		obs_enter_graphics();
 		auto *target = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
@@ -175,15 +184,19 @@ int main(int argc, char **argv)
 				uint8_t *data = nullptr;
 				uint32_t stride = 0;
 				if (gs_stagesurface_map(stage, &data, &stride)) {
-					auto *middle = data + 72 * stride + 128 * 4;
-					auto *bar = data + 72 * stride + 8 * 4;
+					auto *middle = data + (HEIGHT/2) * stride + (WIDTH/2) * 4;
+					auto *bar = data + (HEIGHT>WIDTH?8:HEIGHT/2) * stride + (HEIGHT>WIDTH?WIDTH/2:8) * 4;
 					center_luma = (int)middle[0] + (int)middle[1] + (int)middle[2];
 					bar_luma = (int)bar[0] + (int)bar[1] + (int)bar[2];
-					if (center_luma > 25)
+					if (center_luma > 25 && bar_luma < 20)
 						nonzero_frames++;
 					if (first_red < 0 && center_luma > 25)
 						first_red = middle[0];
 					last_red = middle[0];
+					if(center_luma>25 && bar_luma<20){
+						if(last_red<min_red)min_red=last_red;
+						if(last_red>max_red)max_red=last_red;
+					}
 					std::printf("VIDEO_GPU sample=%d center=%d,%d,%d,%d bar=%d,%d,%d,%d\n", attempt,
 						    middle[0], middle[1], middle[2], middle[3], bar[0], bar[1], bar[2],
 						    bar[3]);
@@ -363,6 +376,10 @@ int main(int argc, char **argv)
 	if(obs_property_visible(obs_properties_get(historic_props,per_codec_group[selected_codec-2])))return 16;
 	obs_property_t *historical_summary=obs_properties_get(historic_props,"codec_historical_details");
 	if(!historical_summary || !obs_property_visible(historical_summary))return 17;
+	if(!obs_properties_get(historic_props,"codec_video_framing") ||
+	   !obs_properties_get(historic_props,"codec_video_wet") ||
+	   !obs_properties_get(historic_props,"codec_video_alpha"))return 20;
+	// Historical auto framing should use the full source, without bars.
 	// Render the fixed profile through the actual filter, not just its properties.
 	int fixed_frames=0;
 	for(int i=0;i<15;i++){
@@ -380,7 +397,7 @@ int main(int argc, char **argv)
 				if(gs_stagesurface_map(stage,&pixels,&stride)){
 					const auto *middle=pixels+(HEIGHT/2)*stride+(WIDTH/2)*4;
 					const auto *edge=pixels+(HEIGHT/2)*stride+8*4;
-					fixed_frames+=(middle[0]+middle[1]+middle[2]>25 && edge[0]+edge[1]+edge[2]<20);
+					fixed_frames+=(middle[0]+middle[1]+middle[2]>25 && edge[0]+edge[1]+edge[2]>25);
 					gs_stagesurface_unmap(stage);
 				}
 				gs_stagesurface_destroy(stage);
@@ -390,6 +407,51 @@ int main(int argc, char **argv)
 		obs_leave_graphics();
 	}
 	if(fixed_frames<3)return 18;
+	// Live alpha is read each frame; codec RGB is independent.
+	alpha_test.store(true);
+	auto sample_alpha=[&](bool preserve,int wet,int expected)->bool{
+		obs_data_set_bool(historic_settings,"codec_video_alpha",preserve);
+		obs_data_set_int(historic_settings,"codec_video_wet",wet);
+		obs_source_update(filter,historic_settings);
+		int success=0;
+		for(int i=0;i<12;i++){
+			std::this_thread::sleep_for(std::chrono::milliseconds(120));
+			obs_enter_graphics();
+			auto *tr=gs_texrender_create(GS_RGBA,GS_ZS_NONE);
+			if(tr&&gs_texrender_begin(tr,WIDTH,HEIGHT)){
+				vec4 clear{};gs_clear(GS_CLEAR_COLOR,&clear,1,0);
+				gs_projection_push();gs_ortho(0,WIDTH,0,HEIGHT,-100,100);
+				obs_source_video_render(source);gs_projection_pop();gs_texrender_end(tr);
+				auto *stage=gs_stagesurface_create(WIDTH,HEIGHT,GS_RGBA);
+				if(stage){
+					gs_stage_texture(stage,gs_texrender_get_texture(tr));
+					uint8_t *px=nullptr;uint32_t stride=0;
+					if(gs_stagesurface_map(stage,&px,&stride)){
+						int a=px[HEIGHT/2*stride+WIDTH/2*4+3];
+						int edge=px[HEIGHT/2*stride+8*4+3];
+						int edge_expected=preserve||wet==0?0:255;
+						const auto *edge_px=px+HEIGHT/2*stride+(WIDTH/4-1)*4;
+						const bool zero_rgb=edge_expected!=0 ||
+							(edge_px[3]<=2 && edge_px[0]<=2 && edge_px[1]<=2 && edge_px[2]<=2);
+						success+=(std::abs(a-expected)<=2 && std::abs(edge-edge_expected)<=2 && zero_rgb);
+						gs_stagesurface_unmap(stage);
+					}
+					gs_stagesurface_destroy(stage);
+				}
+			}
+			if(tr)gs_texrender_destroy(tr);
+			obs_leave_graphics();
+			if(success>=3)break;
+		}
+		printf("LIVE_ALPHA codec=%s preserve=%d wet=%d expected=%d successful=%d\n",argv[3],int(preserve),wet,expected,success);
+		return success>=3;
+	};
+	if(!sample_alpha(true,100,128)||!sample_alpha(false,100,255)||
+	   !sample_alpha(false,0,128))return 21;
+	alpha_test.store(false);
+	obs_data_set_bool(historic_settings,"codec_video_alpha",true);
+	obs_data_set_int(historic_settings,"codec_video_wet",100);
+
 	obs_data_set_bool(historic_settings,"codec_historical_profile",false);
 	if(!obs_property_modified(obs_properties_get(historic_props,"codec_historical_profile"),historic_settings) ||
 	   !obs_property_visible(obs_properties_get(historic_props,per_codec_group[selected_codec-2])) ||
@@ -424,7 +486,7 @@ int main(int argc, char **argv)
 	obs_shutdown();
 	printf("VIDEO_GPU_RESULT nonzero=%d center_sum=%d bar_sum=%d first_red=%d last_red=%d\n", nonzero_frames,
 	       center_luma, bar_luma, first_red, last_red);
-	if (nonzero_frames < 2 || bar_luma > 20 || first_red < 0 || std::abs(last_red - first_red) < 8)
+	if (nonzero_frames < 2 || bar_luma > 20 || first_red < 0 || max_red - min_red < 8)
 		return 7;
 	printf("VIDEO_OBS_RENDER_PASS codec=%s\n", argv[3]);
 	return 0;

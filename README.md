@@ -141,8 +141,9 @@ and MJPEG. This is **not** a public release or cross-platform
 certification.
 
 - CPU error diffusion needs synchronous GPU readback, CPU processing
-  and upload; video encoding/decoding also adds synchronous render-thread
-  work. Long-session streaming performance and latency remain unverified.
+  and upload. The codec gallery now uses a bounded background worker, with
+  deferred GPU staging; mapping and reconfiguration can still stall.
+  Long-session streaming performance and latency remain unverified.
 - The VHS OSD counter and transport are **simulated**, not linked to
   playback of the underlying OBS source. The glyphs/layout are
   generic hardware-inspired designs, not a specific vendor's firmware.
@@ -332,8 +333,17 @@ Enable **Historical profile** after selecting any real codec to use its
 fixed era-inspired compression settings (the profiles used by framerot's
 Codec Crush). Custom encoder controls hide while this is enabled; turn it
 off to return to your previously adjusted settings. The original RPZA
-shader is unaffected. The capture and presentation remain Retro Effects'
-4:3 crop and bars, not framerot's full-frame/alpha composition.
+shader is unaffected. Historical profile uses full-source framing by
+default, matching framerot's Codec Crush presentation. Choose **4:3 center
+crop** for the original TV-shaped composition, or **Full frame** to fill
+the original source even in custom mode. Auto uses 4:3 in custom mode and
+full frame in historical mode. The encoder retains its actual low-resolution
+pixel lattice; the full-frame option maps it back across the source.
+
+**Wet mix** blends decoded RGB with the live image; **Preserve live source
+alpha** (on by default) uses the current source transparency instead of
+opaque codec output. Both controls remain available with historical
+profiles or custom settings.
 
 These dimensions are **illustrative starter profiles**, not claims about
 every historical device. Each codec now has its own remembered controls,
@@ -365,10 +375,10 @@ back and forth preserves each codec's settings. MPEG-1 uses no B-frames
 in this low-latency implementation; its PAL dimensions and bitrate do
 **not** imply fully VCD-compliant output.
 
-The plugin centers a 4:3 crop from widescreen input, compresses at the
-codec's capture resolution and displays the decoded result in the original
-OBS canvas with appropriate bars. QCIF MPEG-4 explicitly signals a 12:11
-pixel aspect ratio for 4:3 display. Alpha is not preserved.
+In 4:3 crop mode, the plugin centers a 4:3 capture and displays it with
+appropriate bars. Full-frame mode uses the entire source without cropping.
+QCIF MPEG-4 explicitly signals a 12:11 sample aspect ratio for 4:3 display.
+Alpha is composited live, not encoded in the historical bitstream.
 
 **3GP, AVI, MOV, FLV and VCD are containers/packaging, not codecs.**
 These filters process raw video pictures. They do not mux historical
@@ -384,8 +394,12 @@ for the FFmpeg SDK and platform-testing path.
 **Unverified:** continuous streaming performance, latency (especially
 Cinepak CPU cost), how close output looks to specific hardware captures,
 and whether bitrate controls meaningfully influence each encoder.
-GPU readback and encoding currently run synchronously on OBS's render
-thread. Passing tests do not establish reliable long-running use.
+Encode/decode runs on a bounded per-filter worker (one queued input,
+one in flight, latest decoded result). During warmup or codec failure the
+live source is used; invalid encoder initialization is retried with a
+250 ms cooldown. GPU mapping and joining an in-flight encode on
+reconfiguration or teardown may still stall. Passing tests do not
+establish reliable long-running use.
 
 ## VHS
 Be kind, please rewind. The VHS filter emulates many artifacts seen when playing VHS tapes including tape wrinkle, frame jitter, pop lines, and head switching noise.  It gives the user many tweakable options:

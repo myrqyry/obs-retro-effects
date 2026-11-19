@@ -70,6 +70,9 @@ void codec_unset_settings(retro_effects_filter_data_t *filter)
 	codec_clear_real_settings(settings);
 	obs_data_unset_user_value(settings, "codec_real_legacy_owner");
 	obs_data_unset_user_value(settings, "codec_historical_profile");
+	obs_data_unset_user_value(settings,"codec_video_framing");
+	obs_data_unset_user_value(settings,"codec_video_wet");
+	obs_data_unset_user_value(settings,"codec_video_alpha");
 #endif
 	obs_data_release(settings);
 }
@@ -210,6 +213,9 @@ void codec_filter_update(retro_effects_filter_data_t *data, obs_data_t *settings
 #ifdef ENABLE_VIDEO_CODECS
 	const struct codec_ui_profile *profile = codec_profile(codec_video_kind(filter->codec_type));
 	filter->historical_profile = obs_data_get_bool(settings, "codec_historical_profile");
+	filter->video_framing=codec_clamp((int)obs_data_get_int(settings,"codec_video_framing"),0,2);
+	filter->video_wet=codec_clamp((int)obs_data_get_int(settings,"codec_video_wet"),0,100);
+	filter->video_alpha=obs_data_get_bool(settings,"codec_video_alpha");
 	/* The old globally shared settings can represent only one codec. Mark
 	 * their original owner once, so other modes start with honest defaults.
 	 * When the filter currently uses RPZA, treat stale video settings as
@@ -287,6 +293,9 @@ void codec_filter_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "codec_rpza_threshold_gradient", 0.18);
 #ifdef ENABLE_VIDEO_CODECS
 	obs_data_set_default_bool(settings, "codec_historical_profile", false);
+	obs_data_set_default_int(settings,"codec_video_framing",0);
+	obs_data_set_default_int(settings,"codec_video_wet",100);
+	obs_data_set_default_bool(settings,"codec_video_alpha",true);
 	obs_data_set_default_int(settings, "codec_video_fps", 10);
 	obs_data_set_default_int(settings, "codec_video_bitrate", 64000);
 	obs_data_set_default_int(settings, "codec_video_gop", 30);
@@ -329,6 +338,11 @@ static void codec_set_visibility(obs_properties_t *props, enum retro_video_codec
 	obs_property_t *details = obs_properties_get(props, "codec_historical_details");
 	if (toggle)
 		obs_property_set_visible(toggle, kind != 0);
+	const char *presentation[]={"codec_video_framing","codec_video_wet","codec_video_alpha"};
+	for(size_t i=0;i<sizeof(presentation)/sizeof(*presentation);i++){
+		obs_property_t *p=obs_properties_get(props,presentation[i]);
+		if(p)obs_property_set_visible(p,kind!=0);
+	}
 	if (details) {
 		obs_property_set_visible(details, kind != 0 && historical);
 		if (kind) {
@@ -485,6 +499,13 @@ void codec_filter_properties(retro_effects_filter_data_t *data, obs_properties_t
 	obs_property_set_modified_callback(historical, codec_type_modified);
 	obs_property_set_long_description(historical, obs_module_text("RetroEffects.Codec.HistoricalProfile.Description"));
 	obs_properties_add_text(props, "codec_historical_details", "", OBS_TEXT_INFO);
+	obs_property_t *framing=obs_properties_add_list(props,"codec_video_framing",obs_module_text("RetroEffects.Codec.Framing"),OBS_COMBO_TYPE_LIST,OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(framing,obs_module_text("RetroEffects.Codec.Framing.Auto"),0);
+	obs_property_list_add_int(framing,obs_module_text("RetroEffects.Codec.Framing.Full"),1);
+	obs_property_list_add_int(framing,obs_module_text("RetroEffects.Codec.Framing.Crop"),2);
+	obs_properties_add_int_slider(props,"codec_video_wet",obs_module_text("RetroEffects.Codec.Wet"),0,100,1);
+	obs_properties_add_bool(props,"codec_video_alpha",obs_module_text("RetroEffects.Codec.Alpha"));
+
 	for (size_t i = 0; i < sizeof(real_codecs) / sizeof(real_codecs[0]); ++i)
 		codec_add_real_controls(props, &real_codecs[i]);
 	enum retro_video_codec current =
@@ -606,7 +627,9 @@ void codec_filter_video_render(retro_effects_filter_data_t *data)
 			filter->video_elapsed = 0.0f;
 		}
 		if (!retro_video_obs_render(filter->video, base->input_texrender, base->output_texrender, base->width,
-					    base->height, filter->video_due)) {
+					    base->height, filter->video_due,
+						    filter->video_framing==1 || (filter->video_framing==0 && filter->historical_profile),
+						    filter->video_wet,filter->video_alpha)) {
 			base->rendering = false;
 			obs_source_skip_video_filter(base->context);
 		} else {

@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Actual FFmpeg encoder -> decoder for early 3GP video payloads.
  * Both use YUV420P, no B frames; no muxing, fake artifacts or packet loss.
  */
@@ -58,3 +62,7 @@ uint64_t retro_video_encoded_keyframes(const struct retro_video *video);
 int retro_video_decoded_profile(const struct retro_video *video);
 int retro_video_decoded_sar_num(const struct retro_video *video);
 int retro_video_decoded_sar_den(const struct retro_video *video);
+
+#ifdef __cplusplus
+}
+#endif

@@ -36,9 +36,9 @@ an existing OBS installation.
 The Native codec qualification workflow pins and checks the SHA-256 of the
 official OBS 32.2.0 dependency archives (obs-deps 2026-07-15), with Windows
 x64, macOS Apple Silicon and macOS Intel jobs. Each native runner builds
-and executes both independent real codec tests, including all eight
+and executes the independent real codec and bounded worker tests, including all eight
 historical encoders, MPEG-4 profile/SAR, MJPEG quantizer behavior and
-Microsoft Video 1 channel order. This workflow intentionally creates no
+Microsoft Video 1 channel order, queue overload and failure backoff. This workflow intentionally creates no
 OBS plugin packages.
 
 OBS 32.2.0 dependency pin: https://github.com/obsproject/obs-studio/blob/32.2.0/CMakePresets.json
@@ -52,11 +52,13 @@ Dependency archives: https://github.com/obsproject/obs-deps/releases/tag/2026-07
 - Native Windows/macOS workflow: prepared, not yet run. Matching the native
   OBS SDK, verifying plugin dependencies and module load, exercising
   Direct3D/macOS rendering, and packaging remain separate acceptance gates.
-- Retro Effects currently crops to 4:3, does not preserve alpha, and uses a
-  synchronous render-thread codec path. The historical encoder settings
-  have been transferred; this is not a pixel-for-pixel replacement for
-  framerot's full-frame worker-backed Codec Crush presentation. Keep that
-  mode until its eventual removal is a safe transition.
+- Retro Effects now supports full-source framing, optional 4:3 crop,
+  wet mix, live alpha and a standard C++17 bounded worker. The native
+  codec test project exercises the worker with both Linux FFmpeg 6 and
+  isolated FFmpeg 8. Native Windows/macOS runs remain unverified.
+  The OBS graphics path is not qualified on those platforms; sustained
+  streaming, actual user-scene comparison and HDR are still open.
+  Keep framerot's Codec Crush until the replacement is accepted.
 
 The native qualification path is deliberately not part of the existing
 release workflow until native evidence is available.
