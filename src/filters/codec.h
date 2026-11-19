@@ -77,7 +77,7 @@ struct codec_filter_data {
 	int video_fps, video_bitrate, video_gop;
 	int video_cinepak_passes, video_svq1_motion, video_mjpeg_quantizer;
 	float video_elapsed;
-	bool video_due;
+	bool video_due, historical_profile;
 #endif
 };
 

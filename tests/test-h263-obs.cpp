@@ -348,6 +348,57 @@ int main(int argc, char **argv)
 	if (!retained)
 		return 11;
 
+	// Fixed historical settings must not destroy editable per-codec values.
+	auto *historic_props=obs_source_properties(filter);
+	auto *historic=obs_properties_get(historic_props,"codec_historical_profile");
+	auto *historic_settings=obs_source_get_settings(filter);
+	if(!historic || !obs_property_visible(historic) ||
+	   obs_data_get_bool(historic_settings,"codec_historical_profile")) return 14;
+	obs_data_set_bool(historic_settings,"codec_historical_profile",true);
+	if(!obs_property_modified(historic,historic_settings) ||
+	   obs_property_visible(obs_properties_get(historic_props,per_codec_group[selected_codec-2]))) return 15;
+	obs_source_update(filter,historic_settings);
+	obs_properties_destroy(historic_props);
+	historic_props=obs_source_properties(filter);
+	if(obs_property_visible(obs_properties_get(historic_props,per_codec_group[selected_codec-2])))return 16;
+	obs_property_t *historical_summary=obs_properties_get(historic_props,"codec_historical_details");
+	if(!historical_summary || !obs_property_visible(historical_summary))return 17;
+	// Render the fixed profile through the actual filter, not just its properties.
+	int fixed_frames=0;
+	for(int i=0;i<15;i++){
+		std::this_thread::sleep_for(std::chrono::milliseconds(120));
+		obs_enter_graphics();
+		auto *tr=gs_texrender_create(GS_RGBA,GS_ZS_NONE);
+		if(tr && gs_texrender_begin(tr,WIDTH,HEIGHT)){
+			vec4 clear{};gs_clear(GS_CLEAR_COLOR,&clear,1,0);
+			gs_projection_push();gs_ortho(0,WIDTH,0,HEIGHT,-100,100);
+			obs_source_video_render(source);gs_projection_pop();gs_texrender_end(tr);
+			auto *stage=gs_stagesurface_create(WIDTH,HEIGHT,GS_RGBA);
+			if(stage){
+				gs_stage_texture(stage,gs_texrender_get_texture(tr));
+				uint8_t *pixels=nullptr;uint32_t stride=0;
+				if(gs_stagesurface_map(stage,&pixels,&stride)){
+					const auto *middle=pixels+(HEIGHT/2)*stride+(WIDTH/2)*4;
+					const auto *edge=pixels+(HEIGHT/2)*stride+8*4;
+					fixed_frames+=(middle[0]+middle[1]+middle[2]>25 && edge[0]+edge[1]+edge[2]<20);
+					gs_stagesurface_unmap(stage);
+				}
+				gs_stagesurface_destroy(stage);
+			}
+		}
+		if(tr)gs_texrender_destroy(tr);
+		obs_leave_graphics();
+	}
+	if(fixed_frames<3)return 18;
+	obs_data_set_bool(historic_settings,"codec_historical_profile",false);
+	if(!obs_property_modified(obs_properties_get(historic_props,"codec_historical_profile"),historic_settings) ||
+	   !obs_property_visible(obs_properties_get(historic_props,per_codec_group[selected_codec-2])) ||
+	   obs_data_get_int(historic_settings,fps_key)!=altered_fps)return 19;
+	obs_source_update(filter,historic_settings);
+	obs_data_release(historic_settings);
+	obs_properties_destroy(historic_props);
+	printf("HISTORICAL_PROFILE codec=%s rendered=%d custom_preserved=1\n",argv[3],fixed_frames);
+
 	// MPEG-1 requires a discrete, encoder-supported FPS selection.
 	if (selected_codec == 8) {
 		auto *props = obs_source_properties(filter);
