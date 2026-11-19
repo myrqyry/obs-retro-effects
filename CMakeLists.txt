@@ -113,22 +113,21 @@ if(ENABLE_H263_CODEC)
   set(ENABLE_VIDEO_CODECS ON)
 endif()
 if(ENABLE_VIDEO_CODECS)
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(VIDEO_FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
+  include(RetroFFmpeg)
   target_sources(${PROJECT_NAME} PRIVATE
     src/codec/video-roundtrip.c src/codec/video-roundtrip.h
     src/codec/video-obs.c src/codec/video-obs.h)
-  target_link_libraries(${PROJECT_NAME} PRIVATE PkgConfig::VIDEO_FFMPEG)
+  target_link_libraries(${PROJECT_NAME} PRIVATE retro_ffmpeg)
   target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_VIDEO_CODECS=1)
 
   include(CTest)
   if(BUILD_TESTING)
     add_executable(test_h263_roundtrip tests/test-h263-roundtrip.c src/codec/video-roundtrip.c)
-    target_link_libraries(test_h263_roundtrip PRIVATE PkgConfig::VIDEO_FFMPEG)
+    target_link_libraries(test_h263_roundtrip PRIVATE retro_ffmpeg)
     add_test(NAME h263_roundtrip COMMAND test_h263_roundtrip)
 
     add_executable(test_video_codecs tests/test-video-codecs.c src/codec/video-roundtrip.c)
-    target_link_libraries(test_video_codecs PRIVATE PkgConfig::VIDEO_FFMPEG)
+    target_link_libraries(test_video_codecs PRIVATE retro_ffmpeg)
     add_test(NAME video_codecs_roundtrip COMMAND test_video_codecs)
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

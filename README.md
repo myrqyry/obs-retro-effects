@@ -328,6 +328,13 @@ These are different algorithms, not random-noise/block-edge shaders.
 | MPEG-1 | 352×288, 25 fps | YUV 4:2:0 | PAL Video CD-era |
 | Motion JPEG | 320×240, 15 fps | Full-range YUV 4:2:2 | Early digital cameras |
 
+Enable **Historical profile** after selecting any real codec to use its
+fixed era-inspired compression settings (the profiles used by framerot's
+Codec Crush). Custom encoder controls hide while this is enabled; turn it
+off to return to your previously adjusted settings. The original RPZA
+shader is unaffected. The capture and presentation remain Retro Effects'
+4:3 crop and bars, not framerot's full-frame/alpha composition.
+
 These dimensions are **illustrative starter profiles**, not claims about
 every historical device. Each codec now has its own remembered controls,
 rather than sharing and overwriting one generic panel:
@@ -370,8 +377,9 @@ camera sensors or particular consumer hardware.
 
 The gallery is opt-in; see [Building and testing](#building-and-testing)
 for FFmpeg requirements and build/test commands. With codecs disabled,
-the filter retains its original shader RPZA behavior. The new codecs
-are not yet packaged or verified for Windows/macOS.
+the filter retains its original shader RPZA behavior. Windows/macOS
+codec-enabled packages are not yet qualified. See [native codec qualification](docs/NATIVE_CODECS.md)
+for the FFmpeg SDK and platform-testing path.
 
 **Unverified:** continuous streaming performance, latency (especially
 Cinepak CPU cost), how close output looks to specific hardware captures,
