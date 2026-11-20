@@ -203,7 +203,7 @@ Users have the ability to adjust the number of color levels used in the posteriz
 ## Dither
 Send your video back to Windows 3.1 with the dithering filter.  Dithering is a technique used on lower bit-depth displays to smooth transitions between different colors or shades by adding noise or patterns, thereby reducing the appearance of banding or color stepping.
 
-All twelve modes, captured from the real OBS filter using the same footage and settings:
+All twelve modes, captured from the real OBS filter using the same footage, **2 color steps per channel** and **2 px** logical pixels:
 
 <table>
   <tr>

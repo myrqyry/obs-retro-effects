@@ -12,7 +12,7 @@ Every image below was captured from this fork running in an isolated Linux libob
 
 ## Dither
 
-All twelve modes use the same settings (color steps 4, logical pixel size 2, color mode). The stills link to the original-size animated previews; open them at 100% to inspect individual dither patterns.
+All twelve modes use the same settings (2 color steps per channel, logical pixel size 2 px, color mode). The stills link to the original-size animated previews; open them at 100% to inspect individual dither patterns.
 
 <table>
 <tr><th>None / Posterize</th><th>Bayer 2×2</th><th>Bayer 4×4</th></tr>
