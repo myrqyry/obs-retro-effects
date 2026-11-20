@@ -13,8 +13,8 @@ void retro_video_obs_destroy(struct retro_video_obs *state);
 bool retro_video_obs_matches(const struct retro_video_obs *state, const struct retro_video_options *options);
 
 /* Real video encode/decode. The output is the source-canvas-sized frame,
- * preserving the QCIF display aspect. Holds the last decoded frame until due.
+ * with selectable full-frame or historical 4:3 framing. Holds the last decoded frame until due.
  * false = unavailable/errored; caller may bypass.
  */
 bool retro_video_obs_render(struct retro_video_obs *state, gs_texrender_t *input, gs_texrender_t *output,
-			    uint32_t output_width, uint32_t output_height, bool encode_frame);
+			    uint32_t output_width, uint32_t output_height, bool encode_frame, bool full_frame, int wet, bool alpha);

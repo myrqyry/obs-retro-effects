@@ -1,6 +1,6 @@
 #include "video-roundtrip.h"
 
-#include <libavcodec/avcodec.h>
+#include "ffmpeg-compat.h"
 #include <libavutil/error.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
@@ -117,15 +117,7 @@ struct retro_video *retro_video_create(const struct retro_video_options *options
 		return NULL;
 	const AVCodec *encoder = avcodec_find_encoder(preset->avcodec);
 	const AVCodec *decoder = avcodec_find_decoder(preset->avcodec);
-	if (encoder && encoder->pix_fmts) {
-		bool format_supported = false;
-		for (const enum AVPixelFormat *fmt = encoder->pix_fmts; *fmt != AV_PIX_FMT_NONE; ++fmt)
-			if (*fmt == preset->input_format)
-				format_supported = true;
-		if (!format_supported)
-			return NULL;
-	}
-	if (!encoder || !decoder)
+	if (!decoder || !retro_encoder_supports_format(encoder, preset->input_format))
 		return NULL;
 
 	struct retro_video *ctx = calloc(1, sizeof(*ctx));
@@ -173,7 +165,7 @@ struct retro_video *retro_video_create(const struct retro_video_options *options
 	if (options->codec == RETRO_VIDEO_MPEG1)
 		ctx->encoder->sample_aspect_ratio = (AVRational){12, 11};
 	if (options->codec == RETRO_VIDEO_MPEG4_PART2) {
-		ctx->encoder->profile = FF_PROFILE_MPEG4_SIMPLE;
+		ctx->encoder->profile = RETRO_MPEG4_SIMPLE_PROFILE;
 		/* An explicit QCIF 4:3 sample aspect (12:11) in MPEG-4 VOL.
 		 * Larger square-pixel modes use 1:1. */
 		ctx->encoder->sample_aspect_ratio =

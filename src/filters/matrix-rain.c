@@ -129,51 +129,50 @@ void matrix_rain_filter_update(retro_effects_filter_data_t *data, obs_data_t *se
 		}
 	}
 
-	if (filter->char_set == 0) {
-		filter->font_num_chars = (float)obs_data_get_int(settings, "matrix_rain_texture_chars");
-	}
-
 	const char *custom_texture_file = obs_data_get_string(settings, "matrix_rain_texture");
-	if (filter->char_set == 0 && strlen(custom_texture_file) > 0 &&
-	    strcmp(custom_texture_file, filter->custom_texture_file.array) != 0) {
-		dstr_copy(&filter->custom_texture_file, custom_texture_file);
-		set_character_texture(filter, filter->custom_texture_file.array, filter->font_num_chars);
+	const float requested_chars = (float)obs_data_get_int(settings, "matrix_rain_texture_chars");
+	if (filter->char_set == 0 && custom_texture_file && *custom_texture_file) {
+		if (strcmp(custom_texture_file, filter->custom_texture_file.array) != 0) {
+			if (set_character_texture(filter, custom_texture_file, requested_chars))
+				dstr_copy(&filter->custom_texture_file, custom_texture_file);
+		} else if (filter->font_texture && requested_chars >= 1.0f && requested_chars <= 255.0f) {
+			// Changing the glyph count for an already loaded atlas needs no reload.
+			filter->font_num_chars = requested_chars;
+		}
 	}
 }
 
-void set_character_texture(matrix_rain_filter_data_t *filter, const char *filename, float num_chars)
+bool set_character_texture(matrix_rain_filter_data_t *filter, const char *filename, float num_chars)
 {
-	// if (filter->font_image == NULL) {
-	// 	filter->font_image = image_file_alloc();
-	// } else {
-	// 	obs_enter_graphics();
-	// 	image_file_free(filter->font_image);
-	// 	obs_leave_graphics();
-	// }
-	// if (filename) {
-	// 	image_file_init(filter->font_image, filename, GS_IMAGE_ALPHA_STRAIGHT);
-	// 	obs_enter_graphics();
-	// 	image_file_init_texture(filter->font_image);
-	// 	filter->font_texture_size.x = (float)gs_texture_get_width(
-	// 		filter->font_image->texture);
-	// 	filter->font_texture_size.y = (float)gs_texture_get_height(
-	// 		filter->font_image->texture);
-	// 	obs_leave_graphics();
-	// }
-	if (filter->font_texture) {
-		obs_enter_graphics();
-		gs_texture_destroy(filter->font_texture);
-		filter->font_texture = NULL;
+	if (!filename || !*filename || !(num_chars >= 1.0f && num_chars <= 255.0f))
+		return false;
+
+	obs_enter_graphics();
+	gs_texture_t *replacement = gs_texture_create_from_file(filename);
+	if (!replacement) {
 		obs_leave_graphics();
+		blog(LOG_WARNING, "[obs-retro-effects] Matrix Rain character atlas could not be loaded: %s", filename);
+		return false;
 	}
-	if (filename) {
-		obs_enter_graphics();
-		filter->font_texture = gs_texture_create_from_file(filename);
-		filter->font_texture_size.x = (float)gs_texture_get_width(filter->font_texture);
-		filter->font_texture_size.y = (float)gs_texture_get_height(filter->font_texture);
+
+	const uint32_t width = gs_texture_get_width(replacement);
+	const uint32_t height = gs_texture_get_height(replacement);
+	if (!width || !height || width < (uint32_t)num_chars) {
+		gs_texture_destroy(replacement);
 		obs_leave_graphics();
+		blog(LOG_WARNING, "[obs-retro-effects] Invalid Matrix Rain atlas dimensions: %s", filename);
+		return false;
 	}
+
+	gs_texture_t *old = filter->font_texture;
+	filter->font_texture = replacement;
+	filter->font_texture_size.x = (float)width;
+	filter->font_texture_size.y = (float)height;
 	filter->font_num_chars = num_chars;
+	if (old)
+		gs_texture_destroy(old);
+	obs_leave_graphics();
+	return true;
 }
 
 void matrix_rain_filter_defaults(obs_data_t *settings)
@@ -311,7 +310,9 @@ void matrix_rain_filter_video_render(retro_effects_filter_data_t *data)
 	// 	font_texture = filter->font_image->texture;
 	// }
 
-	if (!effect || !image) {
+	if (!effect || !image || !filter->font_texture || filter->font_num_chars < 1.0f || !filter->param_font_image) {
+		base->rendering = false;
+		obs_source_skip_video_filter(base->context);
 		return;
 	}
 
@@ -368,7 +369,7 @@ void matrix_rain_filter_video_render(retro_effects_filter_data_t *data)
 		gs_effect_set_float(filter->param_max_brightness, filter->max_brightness);
 	}
 
-	if (filter->param_max_brightness) {
+	if (filter->param_min_fade_value) {
 		gs_effect_set_float(filter->param_min_fade_value, filter->min_fade_value);
 	}
 
@@ -397,8 +398,7 @@ void matrix_rain_filter_video_render(retro_effects_filter_data_t *data)
 
 	gs_texture_t *matrix_rain_texture = gs_texrender_get_texture(filter->matrix_rain_texrender);
 
-	data->bloom_data->brightness_threshold = 0.4f;
-
+	// Respect the user-selected bloom threshold configured in filter_update.
 	bloom_render(matrix_rain_texture, data->bloom_data);
 
 	gs_texrender_t *tmp = base->output_texrender;

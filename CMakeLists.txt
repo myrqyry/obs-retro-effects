@@ -20,6 +20,17 @@ target_sources(${PROJECT_NAME} PRIVATE src/filters/dither-diffusion.c src/filter
  src/filters/vhs-osd.c src/filters/vhs-osd.h)
 include(CTest)
 if(BUILD_TESTING)
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME matrix_rain_source_contract
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test-matrix-rain-contract.py)
+    execute_process(COMMAND ${Python3_EXECUTABLE} -c "import PIL"
+      RESULT_VARIABLE MATRIX_RAIN_PILLOW_AVAILABLE OUTPUT_QUIET ERROR_QUIET)
+    if(MATRIX_RAIN_PILLOW_AVAILABLE EQUAL 0)
+      add_test(NAME matrix_rain_glyph_atlas
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test-matrix-glyph-atlas.py)
+    endif()
+  endif()
   add_executable(test_dither_diffusion tests/test-dither-diffusion.c src/filters/dither-diffusion.c)
   if(UNIX)
     target_link_libraries(test_dither_diffusion PRIVATE m)
@@ -37,6 +48,17 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
   find_program(XVFB_RUN xvfb-run)
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/h263-test-home")
   if(XVFB_RUN)
+        add_executable(test_effect_hotkeys tests/test-effect-hotkeys.cpp)
+        target_link_libraries(test_effect_hotkeys PRIVATE OBS::libobs)
+        add_test(NAME effect_hotkeys_obs
+          COMMAND ${CMAKE_COMMAND} -E env
+            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            ${XVFB_RUN} -a
+            $<TARGET_FILE:test_effect_hotkeys>
+            $<TARGET_FILE:${PROJECT_NAME}>
+            "${CMAKE_CURRENT_SOURCE_DIR}/data" obs_retro_effects_filter)
+        set_tests_properties(effect_hotkeys_obs PROPERTIES TIMEOUT 30)
         add_executable(test_dither_ui tests/test-dither-ui.cpp)
         target_link_libraries(test_dither_ui PRIVATE OBS::libobs)
         add_test(NAME dither_ui
@@ -59,6 +81,17 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
             $<TARGET_FILE:${PROJECT_NAME}>
             "${CMAKE_CURRENT_SOURCE_DIR}/data")
         set_tests_properties(dither_obs_render PROPERTIES TIMEOUT 45)
+        add_executable(test_matrix_rain_obs tests/test-matrix-rain-obs.cpp)
+        target_link_libraries(test_matrix_rain_obs PRIVATE OBS::libobs)
+        add_test(NAME matrix_rain_obs_render
+          COMMAND ${CMAKE_COMMAND} -E env
+            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            ${XVFB_RUN} -a
+            $<TARGET_FILE:test_matrix_rain_obs>
+            $<TARGET_FILE:${PROJECT_NAME}>
+            "${CMAKE_CURRENT_SOURCE_DIR}/data")
+        set_tests_properties(matrix_rain_obs_render PROPERTIES TIMEOUT 45)
         add_executable(test_vhs_obs tests/test-vhs-obs.cpp)
         target_link_libraries(test_vhs_obs PRIVATE OBS::libobs)
         add_test(NAME vhs_osd_obs_render
@@ -80,22 +113,27 @@ if(ENABLE_H263_CODEC)
   set(ENABLE_VIDEO_CODECS ON)
 endif()
 if(ENABLE_VIDEO_CODECS)
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(VIDEO_FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
+  include(RetroFFmpeg)
+  find_package(Threads REQUIRED)
   target_sources(${PROJECT_NAME} PRIVATE
     src/codec/video-roundtrip.c src/codec/video-roundtrip.h
-    src/codec/video-obs.c src/codec/video-obs.h)
-  target_link_libraries(${PROJECT_NAME} PRIVATE PkgConfig::VIDEO_FFMPEG)
+    src/codec/video-obs.c src/codec/video-obs.h
+    src/codec/codec-worker.cpp src/codec/codec-worker.h)
+  target_link_libraries(${PROJECT_NAME} PRIVATE retro_ffmpeg Threads::Threads)
   target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_VIDEO_CODECS=1)
 
   include(CTest)
   if(BUILD_TESTING)
+    add_executable(test_codec_worker tests/test-codec-worker.cpp src/codec/codec-worker.cpp src/codec/video-roundtrip.c)
+    target_link_libraries(test_codec_worker PRIVATE retro_ffmpeg Threads::Threads)
+    add_test(NAME codec_worker COMMAND test_codec_worker)
+
     add_executable(test_h263_roundtrip tests/test-h263-roundtrip.c src/codec/video-roundtrip.c)
-    target_link_libraries(test_h263_roundtrip PRIVATE PkgConfig::VIDEO_FFMPEG)
+    target_link_libraries(test_h263_roundtrip PRIVATE retro_ffmpeg)
     add_test(NAME h263_roundtrip COMMAND test_h263_roundtrip)
 
     add_executable(test_video_codecs tests/test-video-codecs.c src/codec/video-roundtrip.c)
-    target_link_libraries(test_video_codecs PRIVATE PkgConfig::VIDEO_FFMPEG)
+    target_link_libraries(test_video_codecs PRIVATE retro_ffmpeg)
     add_test(NAME video_codecs_roundtrip COMMAND test_video_codecs)
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -118,6 +156,15 @@ if(ENABLE_VIDEO_CODECS)
           )
           set_tests_properties(${format}_obs_render PROPERTIES TIMEOUT 40)
         endforeach()
+        add_test(NAME codec_portrait_render
+          COMMAND ${CMAKE_COMMAND} -E env
+            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            ${XVFB_RUN} -a
+            $<TARGET_FILE:test_h263_obs>
+            $<TARGET_FILE:${PROJECT_NAME}>
+            "${CMAKE_CURRENT_SOURCE_DIR}/data" mpeg4 portrait)
+        set_tests_properties(codec_portrait_render PROPERTIES TIMEOUT 40)
       endif()
     endif()
   endif()

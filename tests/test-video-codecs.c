@@ -1,5 +1,5 @@
 #include "../src/codec/video-roundtrip.h"
-#include <libavcodec/avcodec.h>
+#include "../src/codec/ffmpeg-compat.h"
 #include <libavutil/log.h>
 
 /* These regression checks must execute in RelWithDebInfo/Release too.
@@ -73,9 +73,9 @@ static uint64_t verify(enum retro_video_codec codec, int bitrate, int *decoded_f
 		int profile = retro_video_decoded_profile(video);
 		int sar_num = retro_video_decoded_sar_num(video);
 		int sar_den = retro_video_decoded_sar_den(video);
-		printf("MPEG4_BITSTREAM profile=%d simple=%d sar=%d:%d\n", profile, FF_PROFILE_MPEG4_SIMPLE, sar_num,
+		printf("MPEG4_BITSTREAM profile=%d simple=%d sar=%d:%d\n", profile, RETRO_MPEG4_SIMPLE_PROFILE, sar_num,
 		       sar_den);
-		assert(profile == FF_PROFILE_MPEG4_SIMPLE);
+		assert(profile == RETRO_MPEG4_SIMPLE_PROFILE);
 		assert(sar_num == 12 && sar_den == 11);
 	}
 	assert(retro_video_encoded_keyframes(video) >= 3);

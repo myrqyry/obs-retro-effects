@@ -15,6 +15,36 @@ The baseline filters, original images, and plugin architecture belong to
 [Upstream issues](https://github.com/FiniteSingularity/obs-retro-effects/issues)
 are for upstream releases; report fork-specific changes to the fork maintainer.
 
+## Fork showcase
+
+Actual OBS renders of the same source footage using the additions in this fork.
+
+<table>
+  <tr><th>Original</th><th>True blue noise</th></tr>
+  <tr><td><img src="docs/showcase/clean.webp" width="400" alt="Original footage"></td><td><img src="docs/showcase/blue-noise.webp" width="400" alt="True blue noise dithering"></td></tr>
+  <tr><th>H.263 historical profile</th><th>VHS VCR display</th></tr>
+  <tr><td><img src="docs/showcase/codec-h263.webp" width="400" alt="Real H.263 encode/decode output"></td><td><img src="docs/showcase/vhs-vcr.webp" width="400" alt="VHS tape distortion and VCR status display"></td></tr>
+</table>
+
+**[Explore the complete animated gallery](docs/SHOWCASE.md)** — all 12 dithering modes,
+8 authentic codecs and both VHS display styles. The source clip was generated
+with Gemini; the effects were captured from the actual Linux OBS plugin.
+
+## Effect hotkeys (fork)
+
+Every Retro Effects filter instance exposes **Enable effect** and
+**Disable effect** under its name in OBS Settings > Hotkeys. Assign
+both to one key for a toggle, or bind them separately. No default key
+is assigned. Bindings follow the filter when renamed or when its retro
+effect type changes, and are saved by OBS with the scene collection.
+
+The native `effect_hotkeys_obs` regression verifies independent
+instances, paired-key toggle, repeat/release, save/reload and removal.
+It also covers removing a filter before its first deferred update,
+which previously could dereference a null cleanup callback.
+Inspired by Spectrum's [source hooks](https://github.com/Voidscape-Development/Spectrum/blob/8af962d220c23e7ee3bf1bd78808887203a85950/src/common/source-hooks.c),
+using this fork's existing filter lifecycle rather than a global wrapper.
+
 ## Introduction
 
 Retro Effects is an OBS plug-in that provides several filters to simulate retro hardware (e.g.- CRTs, NTSC Signals, etc...) giving your OBS sources an authentic retro look/feel. Retro Effects provides the following filters. This fork extends Dither, Retro Codec, and VHS while retaining the upstream filters.
@@ -126,8 +156,9 @@ and MJPEG. This is **not** a public release or cross-platform
 certification.
 
 - CPU error diffusion needs synchronous GPU readback, CPU processing
-  and upload; video encoding/decoding also adds synchronous render-thread
-  work. Long-session streaming performance and latency remain unverified.
+  and upload. The codec gallery now uses a bounded background worker, with
+  deferred GPU staging; mapping and reconfiguration can still stall.
+  Long-session streaming performance and latency remain unverified.
 - The VHS OSD counter and transport are **simulated**, not linked to
   playback of the underlying OBS source. The glyphs/layout are
   generic hardware-inspired designs, not a specific vendor's firmware.
@@ -235,6 +266,8 @@ The GPU-based modes have no CPU readback requirement.
 Older ordered/unordered mode IDs and their saved settings are preserved.
 These methods are available without enabling the optional FFmpeg codecs.
 
+[Compare all twelve fork dithering modes in motion.](docs/SHOWCASE.md#dither)
+
 ![Upstream dither preview; new fork methods not shown](.github/assets/images/dither.png)
 
 ## CRT
@@ -279,6 +312,11 @@ It might not teach the user Kung-Fu but it will definitely make them say "Woahh!
 - Rain Trail fade distance
 - Rain drop speed
 - Charcater bloom radius, threshold, and intensity.
+
+You can also [generate a custom character atlas locally](docs/MATRIX_RAIN_GLYPHS.md)
+from an installed font and a string of glyphs, without using the external web
+generator. The local script outputs a PNG for the existing **Custom Character
+Texture** control; optionally, it registers a named built-in set for the next build.
 - If you've read this far, you realize it is not just a movie file running in the background.
 
 ![matrix rain filter preview](.github/assets/images/matrix-rain.png)
@@ -291,6 +329,8 @@ User adjustable parameters include pixel scale, colors per channel, quality, key
 ![Upstream shader RPZA preview; new FFmpeg gallery not shown](.github/assets/images/retro-codec.png)
 
 ### Authentic video codec gallery (this fork; optional)
+
+[Watch all eight real codec profiles on the same footage.](docs/SHOWCASE.md#retro-codec)
 
 The **Retro Codec** filter supports eight real FFmpeg encoder/decoder
 pipelines, alongside the original shader-based RPZA. Each real mode
@@ -307,6 +347,22 @@ These are different algorithms, not random-noise/block-edge shaders.
 | Sorenson Spark / FLV1 | 320×240, 15 fps | YUV 4:2:0 | Early Flash web video |
 | MPEG-1 | 352×288, 25 fps | YUV 4:2:0 | PAL Video CD-era |
 | Motion JPEG | 320×240, 15 fps | Full-range YUV 4:2:2 | Early digital cameras |
+
+Enable **Historical profile** after selecting any real codec to use its
+fixed era-inspired compression settings (the profiles used by framerot's
+Codec Crush). Custom encoder controls hide while this is enabled; turn it
+off to return to your previously adjusted settings. The original RPZA
+shader is unaffected. Historical profile uses full-source framing by
+default, matching framerot's Codec Crush presentation. Choose **4:3 center
+crop** for the original TV-shaped composition, or **Full frame** to fill
+the original source even in custom mode. Auto uses 4:3 in custom mode and
+full frame in historical mode. The encoder retains its actual low-resolution
+pixel lattice; the full-frame option maps it back across the source.
+
+**Wet mix** blends decoded RGB with the live image; **Preserve live source
+alpha** (on by default) uses the current source transparency instead of
+opaque codec output. Both controls remain available with historical
+profiles or custom settings.
 
 These dimensions are **illustrative starter profiles**, not claims about
 every historical device. Each codec now has its own remembered controls,
@@ -338,10 +394,10 @@ back and forth preserves each codec's settings. MPEG-1 uses no B-frames
 in this low-latency implementation; its PAL dimensions and bitrate do
 **not** imply fully VCD-compliant output.
 
-The plugin centers a 4:3 crop from widescreen input, compresses at the
-codec's capture resolution and displays the decoded result in the original
-OBS canvas with appropriate bars. QCIF MPEG-4 explicitly signals a 12:11
-pixel aspect ratio for 4:3 display. Alpha is not preserved.
+In 4:3 crop mode, the plugin centers a 4:3 capture and displays it with
+appropriate bars. Full-frame mode uses the entire source without cropping.
+QCIF MPEG-4 explicitly signals a 12:11 sample aspect ratio for 4:3 display.
+Alpha is composited live, not encoded in the historical bitstream.
 
 **3GP, AVI, MOV, FLV and VCD are containers/packaging, not codecs.**
 These filters process raw video pictures. They do not mux historical
@@ -350,14 +406,19 @@ camera sensors or particular consumer hardware.
 
 The gallery is opt-in; see [Building and testing](#building-and-testing)
 for FFmpeg requirements and build/test commands. With codecs disabled,
-the filter retains its original shader RPZA behavior. The new codecs
-are not yet packaged or verified for Windows/macOS.
+the filter retains its original shader RPZA behavior. Windows/macOS
+codec-enabled packages are not yet qualified. See [native codec qualification](docs/NATIVE_CODECS.md)
+for the FFmpeg SDK and platform-testing path.
 
 **Unverified:** continuous streaming performance, latency (especially
 Cinepak CPU cost), how close output looks to specific hardware captures,
 and whether bitrate controls meaningfully influence each encoder.
-GPU readback and encoding currently run synchronously on OBS's render
-thread. Passing tests do not establish reliable long-running use.
+Encode/decode runs on a bounded per-filter worker (one queued input,
+one in flight, latest decoded result). During warmup or codec failure the
+live source is used; invalid encoder initialization is retried with a
+250 ms cooldown. GPU mapping and joining an in-flight encode on
+reconfiguration or teardown may still stall. Passing tests do not
+establish reliable long-running use.
 
 ## VHS
 Be kind, please rewind. The VHS filter emulates many artifacts seen when playing VHS tapes including tape wrinkle, frame jitter, pop lines, and head switching noise.  It gives the user many tweakable options:
@@ -367,6 +428,8 @@ Be kind, please rewind. The VHS filter emulates many artifacts seen when playing
 - Head Switching Noise: Primary noise thickness, amount, Secondary noise thickness, horizontal offset, and amount.
 
 ### VCR / Camcorder On-Screen Display (optional)
+
+[Compare both OSD styles in motion.](docs/SHOWCASE.md#vhs-on-screen-display)
 
 The original tape-distortion behavior is preserved. **Display Mode defaults
 to Off** on sources without an explicit OSD setting, so no new overlay
