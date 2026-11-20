@@ -203,6 +203,53 @@ Users have the ability to adjust the number of color levels used in the posteriz
 ## Dither
 Send your video back to Windows 3.1 with the dithering filter.  Dithering is a technique used on lower bit-depth displays to smooth transitions between different colors or shades by adding noise or patterns, thereby reducing the appearance of banding or color stepping.
 
+All twelve modes, captured from the real OBS filter using the same footage and settings:
+
+<table>
+  <tr>
+    <th>None / Posterize</th>
+    <th>Bayer 2×2</th>
+    <th>Bayer 4×4</th>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/showcase/posterize.webp" alt="None / Posterize dithering preview" width="300"></td>
+    <td align="center"><img src="docs/showcase/bayer2.webp" alt="Bayer 2×2 dithering preview" width="300"></td>
+    <td align="center"><img src="docs/showcase/bayer4.webp" alt="Bayer 4×4 dithering preview" width="300"></td>
+  </tr>
+  <tr>
+    <th>Bayer 8×8</th>
+    <th>Directional horizontal</th>
+    <th>Directional vertical</th>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/showcase/bayer8.webp" alt="Bayer 8×8 dithering preview" width="300"></td>
+    <td align="center"><img src="docs/showcase/directional-h.webp" alt="Directional horizontal dithering preview" width="300"></td>
+    <td align="center"><img src="docs/showcase/directional-v.webp" alt="Directional vertical dithering preview" width="300"></td>
+  </tr>
+  <tr>
+    <th>Directional diagonal</th>
+    <th>Quasi-random</th>
+    <th>True blue noise</th>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/showcase/directional-d.webp" alt="Directional diagonal dithering preview" width="300"></td>
+    <td align="center"><img src="docs/showcase/quasi-random.webp" alt="Quasi-random dithering preview" width="300"></td>
+    <td align="center"><img src="docs/showcase/blue-noise.webp" alt="True blue noise dithering preview" width="300"></td>
+  </tr>
+  <tr>
+    <th>Floyd–Steinberg</th>
+    <th>Atkinson</th>
+    <th>Sierra Lite</th>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/showcase/floyd-steinberg.webp" alt="Floyd–Steinberg dithering preview" width="300"></td>
+    <td align="center"><img src="docs/showcase/atkinson.webp" alt="Atkinson dithering preview" width="300"></td>
+    <td align="center"><img src="docs/showcase/sierra-lite.webp" alt="Sierra Lite dithering preview" width="300"></td>
+  </tr>
+</table>
+
+[Original footage, capture details, and the other effect galleries](docs/SHOWCASE.md).
+
 All **12 options** live in the single **Dither Type** dropdown:
 
 - **None (Posterize), GPU:** nearest-level RGB quantization *without* noise,
@@ -265,10 +312,6 @@ The GPU-based modes have no CPU readback requirement.
 
 Older ordered/unordered mode IDs and their saved settings are preserved.
 These methods are available without enabling the optional FFmpeg codecs.
-
-[Compare all twelve fork dithering modes in motion.](docs/SHOWCASE.md#dither)
-
-![Upstream dither preview; new fork methods not shown](.github/assets/images/dither.png)
 
 ## CRT
 The CRT Filter simulates various effects/artifacts as seen on older Cathode Ray Tube displays. Taste the static.
