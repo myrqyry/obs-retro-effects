@@ -15,6 +15,21 @@ The baseline filters, original images, and plugin architecture belong to
 [Upstream issues](https://github.com/FiniteSingularity/obs-retro-effects/issues)
 are for upstream releases; report fork-specific changes to the fork maintainer.
 
+## Fork showcase
+
+Actual OBS renders of the same source footage using the additions in this fork.
+
+<table>
+  <tr><th>Original</th><th>True blue noise</th></tr>
+  <tr><td><img src="docs/showcase/clean.webp" width="400" alt="Original footage"></td><td><img src="docs/showcase/blue-noise.webp" width="400" alt="True blue noise dithering"></td></tr>
+  <tr><th>H.263 historical profile</th><th>VHS VCR display</th></tr>
+  <tr><td><img src="docs/showcase/codec-h263.webp" width="400" alt="Real H.263 encode/decode output"></td><td><img src="docs/showcase/vhs-vcr.webp" width="400" alt="VHS tape distortion and VCR status display"></td></tr>
+</table>
+
+**[Explore the complete animated gallery](docs/SHOWCASE.md)** — all 12 dithering modes,
+8 authentic codecs and both VHS display styles. The source clip was generated
+with Gemini; the effects were captured from the actual Linux OBS plugin.
+
 ## Effect hotkeys (fork)
 
 Every Retro Effects filter instance exposes **Enable effect** and
@@ -251,6 +266,8 @@ The GPU-based modes have no CPU readback requirement.
 Older ordered/unordered mode IDs and their saved settings are preserved.
 These methods are available without enabling the optional FFmpeg codecs.
 
+[Compare all twelve fork dithering modes in motion.](docs/SHOWCASE.md#dither)
+
 ![Upstream dither preview; new fork methods not shown](.github/assets/images/dither.png)
 
 ## CRT
@@ -312,6 +329,8 @@ User adjustable parameters include pixel scale, colors per channel, quality, key
 ![Upstream shader RPZA preview; new FFmpeg gallery not shown](.github/assets/images/retro-codec.png)
 
 ### Authentic video codec gallery (this fork; optional)
+
+[Watch all eight real codec profiles on the same footage.](docs/SHOWCASE.md#retro-codec)
 
 The **Retro Codec** filter supports eight real FFmpeg encoder/decoder
 pipelines, alongside the original shader-based RPZA. Each real mode
@@ -409,6 +428,8 @@ Be kind, please rewind. The VHS filter emulates many artifacts seen when playing
 - Head Switching Noise: Primary noise thickness, amount, Secondary noise thickness, horizontal offset, and amount.
 
 ### VCR / Camcorder On-Screen Display (optional)
+
+[Compare both OSD styles in motion.](docs/SHOWCASE.md#vhs-on-screen-display)
 
 The original tape-distortion behavior is preserved. **Display Mode defaults
 to Off** on sources without an explicit OSD setting, so no new overlay
