@@ -140,7 +140,9 @@ implementation through the actual OBS filter.
 
 **This is a correctness experiment, not a performance upgrade.**
 On the Linux development PC, initial standalone 512×288 and 1024×576
-benchmarks found this Rust version about 18–28% slower than C.
+benchmarks found Rust consistently slower than C (timings varied
+with kernel, resolution, and run). Its static Rust runtime also makes
+the experimental plugin binary significantly larger.
 That excludes GPU readback/upload and has not been validated for long
 OBS streaming sessions. Rust support is not enabled in regular
 cross-platform packaging; do not install this over a working plugin
