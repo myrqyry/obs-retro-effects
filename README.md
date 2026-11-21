@@ -117,6 +117,35 @@ shader rendering/UI; enabling codecs adds round-trips and all eight
 codec OBS render tests. Compilation alone does not demonstrate that
 effects display correctly.
 
+## Experimental Rust error diffusion (Linux only)
+
+The **default** CPU dithering kernel is still C on every platform.
+A Linux-only, opt-in Rust implementation of Floyd–Steinberg, Atkinson,
+and Sierra Lite can replace that kernel without changing OBS graphics
+integration, shaders, saved settings, or the other filters.
+Only `rustc` is needed (tested with 1.75); no Cargo dependencies.
+
+```bash
+cmake -S . -B build_rust_dither -G Ninja -DBUILD_TESTING=ON \
+  -DENABLE_RUST_DITHER=ON -DENABLE_VIDEO_CODECS=OFF
+cmake --build build_rust_dither --parallel 2
+ctest --test-dir build_rust_dither --output-on-failure
+./build_rust_dither/test_dither_rust_parity --bench
+```
+
+`dither_rust_parity` compares the Rust and existing C kernels byte-for-byte
+across dimensions, strides, color depths, alpha values, and all three modes.
+The regular headless `dither_obs_render` test exercises the opt-in Rust
+implementation through the actual OBS filter.
+
+**This is a correctness experiment, not a performance upgrade.**
+On the Linux development PC, initial standalone 512×288 and 1024×576
+benchmarks found this Rust version about 18–28% slower than C.
+That excludes GPU readback/upload and has not been validated for long
+OBS streaming sessions. Rust support is not enabled in regular
+cross-platform packaging; do not install this over a working plugin
+without explicitly testing and backing up the installed version.
+
 ## Local installation and existing assets
 
 The fork and upstream share **the same OBS plugin ID**. Back up your

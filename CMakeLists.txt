@@ -15,9 +15,38 @@ add_library(${CMAKE_PROJECT_NAME} MODULE)
 
 find_package(libobs REQUIRED)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
-target_sources(${PROJECT_NAME} PRIVATE src/filters/dither-diffusion.c src/filters/dither-diffusion.h
+target_sources(${PROJECT_NAME} PRIVATE src/filters/dither-diffusion.h
  src/filters/dither-cpu-render.c src/filters/dither-cpu-render.h
  src/filters/vhs-osd.c src/filters/vhs-osd.h)
+
+# Experimental drop-in kernel. Linux-only until target/ABI packaging is qualified.
+# OFF preserves all upstream C behavior and cross-platform build workflows.
+option(ENABLE_RUST_DITHER "Use the experimental Rust CPU error-diffusion kernel (Linux only)" OFF)
+if(ENABLE_RUST_DITHER)
+  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "ENABLE_RUST_DITHER is currently supported only on Linux")
+  endif()
+  find_program(RUSTC_EXECUTABLE rustc REQUIRED)
+  find_package(Threads REQUIRED)
+  set(RETRO_RUST_DITHER_LIB "${CMAKE_CURRENT_BINARY_DIR}/libretro_dither_rs.a")
+  add_custom_command(
+    OUTPUT "${RETRO_RUST_DITHER_LIB}"
+    COMMAND "${RUSTC_EXECUTABLE}" --edition=2021 --crate-type=staticlib
+      -C opt-level=3 -C panic=abort -C relocation-model=pic
+      -o "${RETRO_RUST_DITHER_LIB}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/rust/dither_diffusion.rs"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/rust/dither_diffusion.rs"
+    VERBATIM)
+  add_custom_target(retro_rust_dither_build DEPENDS "${RETRO_RUST_DITHER_LIB}")
+  add_library(retro_rust_dither STATIC IMPORTED GLOBAL)
+  set_target_properties(retro_rust_dither PROPERTIES IMPORTED_LOCATION "${RETRO_RUST_DITHER_LIB}")
+  add_dependencies(retro_rust_dither retro_rust_dither_build)
+  target_sources(${PROJECT_NAME} PRIVATE src/filters/dither-rust-shim.c)
+  target_link_libraries(${PROJECT_NAME} PRIVATE retro_rust_dither ${CMAKE_DL_LIBS} Threads::Threads m)
+else()
+  target_sources(${PROJECT_NAME} PRIVATE src/filters/dither-diffusion.c)
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
   find_package(Python3 COMPONENTS Interpreter QUIET)
@@ -36,6 +65,12 @@ if(BUILD_TESTING)
     target_link_libraries(test_dither_diffusion PRIVATE m)
   endif()
   add_test(NAME dither_diffusion COMMAND test_dither_diffusion)
+  if(ENABLE_RUST_DITHER)
+    add_executable(test_dither_rust_parity tests/test-dither-rust-parity.c src/filters/dither-diffusion.c)
+    target_compile_definitions(test_dither_rust_parity PRIVATE _POSIX_C_SOURCE=200809L)
+    target_link_libraries(test_dither_rust_parity PRIVATE retro_rust_dither ${CMAKE_DL_LIBS} Threads::Threads m)
+    add_test(NAME dither_rust_parity COMMAND test_dither_rust_parity)
+  endif()
   add_executable(test_blue_noise_mask tests/test-blue-noise-mask.c)
   add_test(NAME blue_noise_mask COMMAND test_blue_noise_mask)
   add_executable(test_vhs_osd tests/test-vhs-osd.c src/filters/vhs-osd.c)
