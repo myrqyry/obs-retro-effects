@@ -2,7 +2,7 @@
 
 void bloom_create(retro_effects_filter_data_t *filter)
 {
-	bloom_data_t *data = bzalloc(sizeof(blur_data_t));
+	bloom_data_t *data = bzalloc(sizeof(bloom_data_t));
 
 	data->blur = filter->blur_data;
 	data->gaussian_radius = 5.0f;

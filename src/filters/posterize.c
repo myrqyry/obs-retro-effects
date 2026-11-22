@@ -21,12 +21,15 @@ void posterize_destroy(retro_effects_filter_data_t *filter)
 	if (data->effect_posterize) {
 		gs_effect_destroy(data->effect_posterize);
 	}
+	if (data->color_source_render)
+		gs_texrender_destroy(data->color_source_render);
 
 	if (data->color_source) {
 		obs_weak_source_release(data->color_source);
 	}
 
 	obs_leave_graphics();
+	dstr_free(&data->color_source_name);
 
 	bfree(filter->active_filter_data);
 	filter->active_filter_data = NULL;
@@ -70,6 +73,8 @@ void posterize_filter_update(retro_effects_filter_data_t *data,
 	if (filter->has_color_source) {
 		load_color_source(filter);
 	} else {
+		if (filter->color_source)
+			obs_weak_source_release(filter->color_source);
 		filter->color_source = NULL;
 	}
 
@@ -185,7 +190,6 @@ void posterize_filter_video_render(retro_effects_filter_data_t *data)
 		gs_effect_set_vec4(filter->param_color_2, &filter->color_2);
 	}
 
-	gs_texrender_t *color_source_render = NULL;
 	gs_texture_t *source_texture = NULL;
 	if (filter->technique == POSTERIZE_COLOR_SOURCE_MAP) {
 		obs_source_t *source =
@@ -211,16 +215,26 @@ void posterize_filter_video_render(retro_effects_filter_data_t *data)
 		const enum gs_color_format format =
 			gs_get_format_from_space(space);
 
-		// Set up a tex renderer for source
-		color_source_render = gs_texrender_create(format, GS_ZS_NONE);
+		// Reuse across frames; changing color format requires a new target.
+		if (filter->color_source_render && filter->color_source_format != format) {
+			gs_texrender_destroy(filter->color_source_render);
+			filter->color_source_render = NULL;
+		}
+		if (!filter->color_source_render) {
+			filter->color_source_render = gs_texrender_create(format, GS_ZS_NONE);
+			filter->color_source_format = format;
+		}
 		uint32_t base_width = obs_source_get_width(source);
 		uint32_t base_height = obs_source_get_height(source);
 
 		gs_blend_state_push();
 		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
-		if (gs_texrender_begin_with_color_space(color_source_render,
-							base_width, base_height,
-							space)) {
+		bool rendered = false;
+		if (filter->color_source_render)
+			gs_texrender_reset(filter->color_source_render);
+		if (filter->color_source_render && base_width && base_height &&
+		    gs_texrender_begin_with_color_space(filter->color_source_render,
+						     base_width, base_height, space)) {
 			const float w = (float)base_width;
 			const float h = (float)base_height;
 			struct vec4 clear_color;
@@ -229,16 +243,21 @@ void posterize_filter_video_render(retro_effects_filter_data_t *data)
 			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
 			gs_ortho(0.0f, w, 0.0f, h, -100.0f, 100.0f);
 			obs_source_video_render(source);
-			gs_texrender_end(color_source_render);
+			gs_texrender_end(filter->color_source_render);
+			rendered = true;
 		}
 		gs_blend_state_pop();
 		obs_source_release(source);
-		source_texture = gs_texrender_get_texture(color_source_render);
-
-		if (filter->param_color_source && source_texture) {
-			gs_effect_set_texture(filter->param_color_source,
-						      source_texture);
+		source_texture = rendered ? gs_texrender_get_texture(filter->color_source_render) : NULL;
+		if (!source_texture) {
+			/* A missing palette target must not use a stale shader texture. */
+			gs_texrender_t *tmp = base->output_texrender;
+			base->output_texrender = base->input_texrender;
+			base->input_texrender = tmp;
+			return;
 		}
+		if (filter->param_color_source)
+			gs_effect_set_texture(filter->param_color_source, source_texture);
 	}
 
 	set_render_parameters();
@@ -259,9 +278,6 @@ void posterize_filter_video_render(retro_effects_filter_data_t *data)
 	}
 
 	gs_blend_state_pop();
-	if (color_source_render) {
-		gs_texrender_destroy(color_source_render);
-	}
 }
 
 static void posterize_set_functions(retro_effects_filter_data_t *filter)

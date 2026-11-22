@@ -412,7 +412,7 @@ void ntsc_filter_video_render(retro_effects_filter_data_t *data)
 		gs_effect_set_float(filter->param_decode_brightness,
 				    filter->brightness);
 	}
-	if (filter->param_decode_chroma_bleed_steps) {
+	if (filter->param_decode_saturation) {
 		gs_effect_set_float(filter->param_decode_saturation,
 				  filter->saturation);
 	}

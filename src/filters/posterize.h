@@ -28,6 +28,8 @@ struct posterize_filter_data {
 	struct dstr color_source_name;
 	bool has_color_source;
 	obs_weak_source_t *color_source;
+	gs_texrender_t *color_source_render;
+	enum gs_color_format color_source_format;
 	float levels;
 	uint32_t technique;
 	struct vec4 color_1;

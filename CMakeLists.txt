@@ -51,6 +51,8 @@ include(CTest)
 if(BUILD_TESTING)
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
+    add_test(NAME retro_foundation_source_contract
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test-retro-foundation-contract.py)
     add_test(NAME matrix_rain_source_contract
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test-matrix-rain-contract.py)
     execute_process(COMMAND ${Python3_EXECUTABLE} -c "import PIL"
@@ -138,6 +140,17 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
             $<TARGET_FILE:${PROJECT_NAME}>
             "${CMAKE_CURRENT_SOURCE_DIR}/data")
         set_tests_properties(vhs_osd_obs_render PROPERTIES TIMEOUT 45)
+        add_executable(test_retro_foundation_obs tests/test-retro-foundation-obs.cpp)
+        target_link_libraries(test_retro_foundation_obs PRIVATE OBS::libobs)
+        add_test(NAME retro_foundation_obs_render
+          COMMAND ${CMAKE_COMMAND} -E env
+            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            ${XVFB_RUN} -a
+            $<TARGET_FILE:test_retro_foundation_obs>
+            $<TARGET_FILE:${PROJECT_NAME}>
+            "${CMAKE_CURRENT_SOURCE_DIR}/data")
+        set_tests_properties(retro_foundation_obs_render PROPERTIES TIMEOUT 45)
   endif()
 endif()
 

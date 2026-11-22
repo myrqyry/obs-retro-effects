@@ -33,6 +33,7 @@ void vhs_unset_settings(retro_effects_filter_data_t* filter)
 {
 	obs_data_t* settings = obs_source_get_settings(filter->base->context);
 	//obs_data_unset_user_value(settings, "vhs_size");
+	obs_data_unset_user_value(settings, "vhs_wrinkle_occurrence");
 	obs_data_unset_user_value(settings, "vhs_wrinkle_occurrence_prob");
 	obs_data_unset_user_value(settings, "vhs_wrinkle_size");
 	obs_data_unset_user_value(settings, "vhs_wrinkle_duration");
@@ -102,6 +103,14 @@ void vhs_filter_update(retro_effects_filter_data_t *data, obs_data_t *settings)
 	filter->osd.speed = speed;
 	filter->osd.channel = channel;
 
+	/* Migrate old saved values without overwriting the current setting. */
+	if (obs_data_has_user_value(settings, "vhs_wrinkle_occurrence_prob")) {
+		if (!obs_data_has_user_value(settings, "vhs_wrinkle_occurrence"))
+			obs_data_set_double(settings, "vhs_wrinkle_occurrence",
+				obs_data_get_double(settings, "vhs_wrinkle_occurrence_prob"));
+		obs_data_unset_user_value(settings, "vhs_wrinkle_occurrence_prob");
+	}
+
 	filter->tape_wrinkle_duration = (float)obs_data_get_double(settings, "vhs_wrinkle_duration");
 	filter->tape_wrinkle_size = (float)obs_data_get_double(settings, "vhs_wrinkle_size");
 	filter->tape_wrinkle_occurrence = (float)obs_data_get_double(settings, "vhs_wrinkle_occurrence");
@@ -139,7 +148,7 @@ void vhs_filter_update(retro_effects_filter_data_t *data, obs_data_t *settings)
 
 void vhs_filter_defaults(obs_data_t *settings)
 {
-	obs_data_set_default_double(settings, "vhs_wrinkle_occurrence_prob", 10.0);
+	obs_data_set_default_double(settings, "vhs_wrinkle_occurrence", 10.0);
 	obs_data_set_default_double(settings, "vhs_wrinkle_size", 5.0);
 	obs_data_set_default_double(settings, "vhs_wrinkle_duration", 3.0);
 	obs_data_set_default_double(settings, "vhs_jitter_min_size", 1.0);

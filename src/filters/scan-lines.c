@@ -35,6 +35,7 @@ void scan_lines_unset_settings(retro_effects_filter_data_t* filter)
 	obs_data_unset_user_value(settings, "scanlines_offset");
 	obs_data_unset_user_value(settings, "scanlines_speed");
 	obs_data_unset_user_value(settings, "scanlines_profile");
+	obs_data_unset_user_value(settings, "scanlines_intensity");
 	obs_data_release(settings);
 }
 
@@ -61,6 +62,7 @@ void scan_lines_filter_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, "scanlines_period", 30.0);
 	obs_data_set_default_double(settings, "scanlines_offset", 0.0);
 	obs_data_set_default_double(settings, "scanlines_speed", 50.0);
+	obs_data_set_default_double(settings, "scanlines_intensity", 50.0);
 	obs_data_set_default_int(settings, "scanlines_profile", SCANLINES_PROFILE_SIN);
 }
 
@@ -169,33 +171,32 @@ void scan_lines_filter_video_render(retro_effects_filter_data_t *data)
 	set_blending_parameters();
 
 	//const char *technique = filter->monochromatic ? "DrawMonoOrdered" : "DrawColorOrdered";
-	struct dstr technique;
+	const char *technique = "DrawSin";
 	switch (filter->profile) {
-	case SCANLINES_PROFILE_SIN:
-		dstr_init_copy(&technique, "DrawSin");
-		break;
 	case SCANLINES_PROFILE_SQUARE:
-		dstr_init_copy(&technique, "DrawSquare");
+		technique = "DrawSquare";
+		break;
+	case SCANLINES_PROFILE_SAWTOOTH:
+		technique = "DrawSawtooth";
 		break;
 	case SCANLINES_PROFILE_SMOOTHSTEP:
-		dstr_init_copy(&technique, "DrawSmoothstep");
+		technique = "DrawSmoothstep";
 		break;
 	case SCANLINES_PROFILE_TRIANGULAR:
-		dstr_init_copy(&technique, "DrawTriangular");
+		technique = "DrawTriangular";
 		break;
 	default:
-		dstr_init_copy(&technique, "DrawSin");
+		break;
 	}
 
 	if (gs_texrender_begin(base->output_texrender, base->width,
 			       base->height)) {
 		gs_ortho(0.0f, (float)base->width, 0.0f, (float)base->height,
 			 -100.0f, 100.0f);
-		while (gs_effect_loop(effect, technique.array))
+		while (gs_effect_loop(effect, technique))
 			gs_draw_sprite(image, 0, base->width, base->height);
 		gs_texrender_end(base->output_texrender);
 	}
-	dstr_free(&technique);
 	gs_blend_state_pop();
 }
 
@@ -214,7 +215,9 @@ void scan_lines_filter_video_tick(retro_effects_filter_data_t *data,
 				   float seconds)
 {
 	scan_lines_filter_data_t *filter = data->active_filter_data;
-	filter->offset = (float)fmod(filter->offset + seconds * filter->speed, filter->period);
+	filter->offset = filter->period > 0.0f
+		? (float)fmod(filter->offset + seconds * filter->speed, filter->period)
+		: 0.0f;
 }
 
 static void scan_lines_load_effect(scan_lines_filter_data_t *filter)
