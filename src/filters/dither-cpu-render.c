@@ -16,11 +16,13 @@ void dither_cpu_destroy(dither_filter_data_t *filter)
 		gs_texture_destroy(filter->diffusion_texture);
 	bfree(filter->diffusion_source);
 	bfree(filter->diffusion_output);
+	bfree(filter->diffusion_scratch);
 	filter->diffusion_prepass = NULL;
 	filter->diffusion_stage = NULL;
 	filter->diffusion_texture = NULL;
 	filter->diffusion_source = NULL;
 	filter->diffusion_output = NULL;
+	filter->diffusion_scratch = NULL;
 	filter->diffusion_width = filter->diffusion_height = 0;
 }
 
@@ -28,7 +30,11 @@ static bool ensure_target(dither_filter_data_t *filter, int w, int h)
 {
 	if (filter->diffusion_width == w && filter->diffusion_height == h && filter->diffusion_prepass &&
 	    filter->diffusion_stage && filter->diffusion_texture && filter->diffusion_source &&
+#ifdef RETRO_RUST_DITHER_KERNEL
 	    filter->diffusion_output)
+#else
+	    filter->diffusion_output && filter->diffusion_scratch)
+#endif
 		return true;
 	dither_cpu_destroy(filter);
 	size_t bytes = (size_t)w * h * 4;
@@ -37,8 +43,15 @@ static bool ensure_target(dither_filter_data_t *filter, int w, int h)
 	filter->diffusion_texture = gs_texture_create(w, h, GS_RGBA, 1, NULL, GS_DYNAMIC);
 	filter->diffusion_source = bmalloc(bytes);
 	filter->diffusion_output = bmalloc(bytes);
+#ifndef RETRO_RUST_DITHER_KERNEL
+	filter->diffusion_scratch = bmalloc((size_t)w * 9 * sizeof(float));
+#endif
 	if (!filter->diffusion_prepass || !filter->diffusion_stage || !filter->diffusion_texture ||
-	    !filter->diffusion_source || !filter->diffusion_output) {
+	    !filter->diffusion_source || !filter->diffusion_output
+#ifndef RETRO_RUST_DITHER_KERNEL
+	    || !filter->diffusion_scratch
+#endif
+	    ) {
 		dither_cpu_destroy(filter);
 		return false;
 	}
@@ -93,9 +106,17 @@ bool dither_cpu_render(dither_filter_data_t *filter, base_filter_data_t *base, g
 	for (int y = 0; y < h; ++y)
 		memcpy(filter->diffusion_source + (size_t)y * w * 4, mapped + (size_t)y * stride, (size_t)w * 4);
 	gs_stagesurface_unmap(filter->diffusion_stage);
-	if (!retro_dither_diffuse(filter->diffusion_source, w, h, w * 4, filter->diffusion_output, w * 4,
-				  filter->color_steps,
-				  (enum retro_dither_diffusion_method)(filter->dither_type - DITHER_TYPE_FLOYD + 1)))
+#ifdef RETRO_RUST_DITHER_KERNEL
+	bool diffused = retro_dither_diffuse(filter->diffusion_source, w, h, w * 4, filter->diffusion_output,
+			w * 4, filter->color_steps,
+			(enum retro_dither_diffusion_method)(filter->dither_type - DITHER_TYPE_FLOYD + 1));
+#else
+	bool diffused = retro_dither_diffuse_with_scratch(filter->diffusion_source, w, h, w * 4,
+			filter->diffusion_output, w * 4, filter->color_steps,
+			(enum retro_dither_diffusion_method)(filter->dither_type - DITHER_TYPE_FLOYD + 1),
+			filter->diffusion_scratch, (size_t)w * 9);
+#endif
+	if (!diffused)
 		return false;
 
 	gs_texture_set_image(filter->diffusion_texture, filter->diffusion_output, w * 4, false);

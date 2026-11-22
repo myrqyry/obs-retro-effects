@@ -351,9 +351,14 @@ requires an additional GPU-to-CPU readback, a sequential CPU propagation
 pass, and a nearest-neighbor texture upload for each frame. Dither size
 is at least 1 px in these CPU modes, and processing resolution is capped
 to 1024 logical pixels on either axis to limit work on high-resolution
-sources. On the development PC, native 1024×576 diffusion alone measured
-roughly 18–23 ms per frame (not including OBS readback/upload). Do not
-assume 60 fps or zero latency; use larger dither pixels to reduce CPU work.
+sources. The default C kernel now keeps a persistent three-scanline RGB
+error buffer (**36 KiB** for 1024 logical pixels wide, versus **6.75 MiB**
+of temporary full-frame float storage previously). No per-frame CPU scratch
+allocation is required by the OBS C path; the optional Rust kernel is
+unchanged. Its pixel results remain byte-for-byte equal to Rust across 384
+parity fixtures. On the development PC, native 1024×576 CPU-only diffusion
+measured roughly 16–23 ms per frame (not including OBS readback/upload).
+Do not assume 60 fps or zero latency; use larger dither pixels to reduce CPU work.
 The GPU-based modes have no CPU readback requirement.
 
 Older ordered/unordered mode IDs and their saved settings are preserved.

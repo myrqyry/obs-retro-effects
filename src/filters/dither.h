@@ -58,6 +58,7 @@ struct dither_filter_data {
 	gs_stagesurf_t *diffusion_stage;
 	gs_texture_t *diffusion_texture;
 	uint8_t *diffusion_source, *diffusion_output;
+	float *diffusion_scratch;
 	int diffusion_width, diffusion_height;
 
 	uint32_t dither_type;
