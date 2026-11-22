@@ -1,6 +1,7 @@
 uniform float4x4 ViewProj;
 uniform texture2d image;
 uniform texture2d color_source;
+uniform texture2d hardware_palette;
 uniform float2 uv_size;
 uniform float levels;
 uniform float4 color_1;
@@ -12,6 +13,12 @@ sampler_state textureSampler{
     AddressV = Clamp;
     MinLOD = 0;
     MaxLOD = 0;
+};
+
+sampler_state paletteSampler {
+    Filter = Point;
+    AddressU = Clamp;
+    AddressV = Clamp;
 };
 
 struct VertData
@@ -52,6 +59,24 @@ float4 mainImageSourceColorMap(VertData v_in) : TARGET
 	float4 c = color_source.Sample(textureSampler, float2(lum, 0.5));
 	c.a *= color.a;
 	return c;
+}
+
+float4 mainImageHardwarePalette(VertData v_in) : TARGET
+{
+	float4 color = image.Sample(textureSampler, v_in.uv);
+	float3 idx = floor(saturate(color.rgb) * 31.0 + 0.5);
+	float2 palette_uv = float2((idx.r + 32.0 * idx.b + 0.5) / 1024.0,
+	                           (idx.g + 0.5) / 32.0);
+	color.rgb = hardware_palette.Sample(paletteSampler, palette_uv).rgb;
+	return color;
+}
+
+technique DrawHardwarePalette
+{
+	pass {
+		vertex_shader = mainTransform(v_in);
+		pixel_shader = mainImageHardwarePalette(v_in);
+	}
 }
 
 technique Draw

@@ -10,6 +10,9 @@ uniform float dither_variant;
 uniform float dither_diffusion_prepass;
 uniform texture2d processed_image;
 uniform texture2d real_blue_noise_mask;
+uniform float palette_enabled;
+uniform texture2d palette_primary;
+uniform texture2d palette_second;
 sampler_state pointSampler {
     Filter = Point;
     AddressU = Clamp;
@@ -232,6 +235,14 @@ float4 sampleSourceMono(float2 uv)
 
 float3 quantise(float3 color, float dither)
 {
+	if (palette_enabled > 0.5) {
+		float3 idx = floor(saturate(color) * 31.0 + 0.5);
+		float2 palette_uv = float2((idx.r + 32.0 * idx.b + 0.5) / 1024.0,
+		                           (idx.g + 0.5) / 32.0);
+		float4 nearest = palette_primary.Sample(pointSampler, palette_uv);
+		float3 alternate = palette_second.Sample(pointSampler, palette_uv).rgb;
+		return dither < nearest.a ? alternate : nearest.rgb;
+	}
 	return floor(color.rgb * color_steps + dither) / color_steps;
 }
 
@@ -252,7 +263,7 @@ float4 ApplyTrueBlueNoise(float4 color, float2 uv)
 float4 ApplyPosterize(float4 color)
 {
 	// Nearest palette level. No Bayer/noise/error diffusion whatsoever.
-	color.rgb = floor(color.rgb * color_steps + 0.5) / color_steps;
+	color.rgb = quantise(color.rgb, palette_enabled > 0.5 ? 1.0 : 0.5);
 	return color;
 }
 

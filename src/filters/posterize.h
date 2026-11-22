@@ -4,6 +4,8 @@
 #include <util/dstr.h>
 
 #include "../obs-retro-effects.h"
+#include "retro-palette-gpu.h"
+#include "retro-palette.h"
 
 #define POSTERIZE_COLOR_PASSTHROUGH 0
 #define POSTERIZE_COLOR_PASSTHROUGH_LABEL "RetroEffects.Posterize.Passthrough"
@@ -11,6 +13,8 @@
 #define POSTERIZE_COLOR_MAP_LABEL "RetroEffects.Posterize.ColorMap"
 #define POSTERIZE_COLOR_SOURCE_MAP 2
 #define POSTERIZE_COLOR_SOURCE_MAP_LABEL "RetroEffects.Posterize.SourceColorMap"
+#define POSTERIZE_HARDWARE_PALETTE 3
+#define POSTERIZE_HARDWARE_PALETTE_LABEL "RetroEffects.Posterize.HardwarePalette"
 
 struct posterize_filter_data;
 typedef struct posterize_filter_data posterize_filter_data_t;
@@ -24,6 +28,7 @@ struct posterize_filter_data {
 	gs_eparam_t *param_color_1;
 	gs_eparam_t *param_color_2;
 	gs_eparam_t *param_color_source;
+	gs_eparam_t *param_palette_primary;
 
 	struct dstr color_source_name;
 	bool has_color_source;
@@ -32,6 +37,8 @@ struct posterize_filter_data {
 	enum gs_color_format color_source_format;
 	float levels;
 	uint32_t technique;
+	int palette_id;
+	struct retro_palette_gpu palette_gpu;
 	struct vec4 color_1;
 	struct vec4 color_2;
 

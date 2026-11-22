@@ -23,6 +23,7 @@ void posterize_destroy(retro_effects_filter_data_t *filter)
 	}
 	if (data->color_source_render)
 		gs_texrender_destroy(data->color_source_render);
+	retro_palette_gpu_destroy(&data->palette_gpu);
 
 	if (data->color_source) {
 		obs_weak_source_release(data->color_source);
@@ -40,6 +41,7 @@ void posterize_unset_settings(retro_effects_filter_data_t* filter)
 	obs_data_t* settings = obs_source_get_settings(filter->base->context);
 	obs_data_unset_user_value(settings, "posterize_levels");
 	obs_data_unset_user_value(settings, "posterize_technique");
+	obs_data_unset_user_value(settings, "posterize_palette");
 	obs_data_unset_user_value(settings, "posterize_map_source");
 	obs_data_unset_user_value(settings, "posterize_color_1");
 	obs_data_unset_user_value(settings, "posterize_color_2");
@@ -61,6 +63,9 @@ void posterize_filter_update(retro_effects_filter_data_t *data,
 
 	filter->technique =
 		(uint32_t)obs_data_get_int(settings, "posterize_technique");
+	int palette_id = (int)obs_data_get_int(settings, "posterize_palette");
+	filter->palette_id = palette_id >= RETRO_PALETTE_DMG && palette_id <= RETRO_PALETTE_PICO8
+		? palette_id : RETRO_PALETTE_DMG;
 
 
 	const char* color_source_name =
@@ -97,6 +102,7 @@ void posterize_filter_update(retro_effects_filter_data_t *data,
 
 void posterize_filter_defaults(obs_data_t *settings) {
 	obs_data_set_default_int(settings, "posterize_levels", 4);
+	obs_data_set_default_int(settings, "posterize_palette", RETRO_PALETTE_DMG);
 	obs_data_set_default_int(settings, "posterize_color_1", 4278190080);
 	obs_data_set_default_int(settings, "posterize_color_2", 4294967295);
 }
@@ -104,7 +110,6 @@ void posterize_filter_defaults(obs_data_t *settings) {
 void posterize_filter_properties(retro_effects_filter_data_t *data,
 				 obs_properties_t *props)
 {
-	UNUSED_PARAMETER(data);
 	obs_properties_add_int(props, "posterize_levels", "Levels", 2, 256,
 			       1);
 
@@ -124,7 +129,14 @@ void posterize_filter_properties(retro_effects_filter_data_t *data,
 		obs_module_text(POSTERIZE_COLOR_SOURCE_MAP_LABEL),
 		POSTERIZE_COLOR_SOURCE_MAP);
 
+	obs_property_list_add_int(technique, obs_module_text(POSTERIZE_HARDWARE_PALETTE_LABEL),
+		POSTERIZE_HARDWARE_PALETTE);
 	obs_property_set_modified_callback(technique, posterize_technique_modified);
+	obs_property_t *palette = obs_properties_add_list(props, "posterize_palette",
+		obs_module_text("RetroEffects.Palette"), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(palette, obs_module_text("RetroEffects.Palette.DMG"), RETRO_PALETTE_DMG);
+	obs_property_list_add_int(palette, obs_module_text("RetroEffects.Palette.CGA"), RETRO_PALETTE_CGA);
+	obs_property_list_add_int(palette, obs_module_text("RetroEffects.Palette.PICO8"), RETRO_PALETTE_PICO8);
 
 	obs_property_t *map_source = obs_properties_add_list(
 		props, "posterize_map_source",
@@ -143,6 +155,11 @@ void posterize_filter_properties(retro_effects_filter_data_t *data,
 	obs_properties_add_color_alpha(
 		props, "posterize_color_2",
 		obs_module_text("RetroEffects.Posterize.Color2"));
+	obs_data_t *settings = obs_source_get_settings(data->base->context);
+	if (settings) {
+		posterize_technique_modified(props, technique, settings);
+		obs_data_release(settings);
+	}
 }
 
 void posterize_filter_video_render(retro_effects_filter_data_t *data)
@@ -260,10 +277,19 @@ void posterize_filter_video_render(retro_effects_filter_data_t *data)
 			gs_effect_set_texture(filter->param_color_source, source_texture);
 	}
 
+	if (filter->technique == POSTERIZE_HARDWARE_PALETTE) {
+		if (!filter->param_palette_primary ||
+		    !retro_palette_gpu_ensure(&filter->palette_gpu, filter->palette_id)) {
+			obs_source_skip_video_filter(base->context);
+			return;
+		}
+		gs_effect_set_texture(filter->param_palette_primary, filter->palette_gpu.primary);
+	}
 	set_render_parameters();
 	set_blending_parameters();
 
-	const char *technique = filter->technique == POSTERIZE_COLOR_PASSTHROUGH
+	const char *technique = filter->technique == POSTERIZE_HARDWARE_PALETTE ? "DrawHardwarePalette"
+		: filter->technique == POSTERIZE_COLOR_PASSTHROUGH
 					? "Draw"
 					: filter->technique == POSTERIZE_COLOR_MAP
 					? "DrawColorMap" : "DrawSourceColorMap";
@@ -342,6 +368,8 @@ static void posterize_load_effect(posterize_filter_data_t *filter)
 				filter->param_color_2 = param;
 			} else if (strcmp(info.name, "color_source") == 0) {
 				filter->param_color_source = param;
+			} else if (strcmp(info.name, "hardware_palette") == 0) {
+				filter->param_palette_primary = param;
 			}
 		}
 	}
@@ -355,6 +383,8 @@ static bool posterize_technique_modified(obs_properties_t *props,
 	UNUSED_PARAMETER(p);
 
 	int technique = (int)obs_data_get_int(settings, "posterize_technique");
+	setting_visibility("posterize_palette", technique == POSTERIZE_HARDWARE_PALETTE, props);
+	setting_visibility("posterize_levels", technique != POSTERIZE_HARDWARE_PALETTE, props);
 	switch (technique) {
 	case POSTERIZE_COLOR_PASSTHROUGH:
 		setting_visibility("posterize_map_source", false, props);
@@ -365,6 +395,11 @@ static bool posterize_technique_modified(obs_properties_t *props,
 		setting_visibility("posterize_map_source", false, props);
 		setting_visibility("posterize_color_1", true, props);
 		setting_visibility("posterize_color_2", true, props);
+		break;
+	case POSTERIZE_HARDWARE_PALETTE:
+		setting_visibility("posterize_map_source", false, props);
+		setting_visibility("posterize_color_1", false, props);
+		setting_visibility("posterize_color_2", false, props);
 		break;
 	case POSTERIZE_COLOR_SOURCE_MAP:
 		setting_visibility("posterize_map_source", true, props);

@@ -229,6 +229,12 @@ Posterizing is a process to reduce the number of colors in an image to create a 
 
 Users have the ability to adjust the number of color levels used in the posterization process as well as options for how color palette sampling is handled.  Options for sampling include the original image colors, a user specified 2-color gradient, or the horizontal center line of any OBS source or scene.
 
+The **Hardware Palette** color-handling option matches each input RGB pixel to
+its nearest color from a built-in palette: **Game Boy DMG** (four green shades),
+**CGA Palette 1** (black/cyan/magenta/white), or **PICO-8** (16 colors). It is
+full-color matching, not the source-map mode's luminance-gradient sampling.
+The original color-handling options remain unchanged.
+
 ![posterize filter preview](.github/assets/images/posterize.png)
 
 ## Dither
@@ -301,10 +307,19 @@ All **12 options** live in the single **Dither Type** dropdown:
   Sierra Lite; actual neighbor-error propagation weights from noita-chat,
   not ordered masks relabeled as diffusion.
 
-The noita-chat code quantizes against a selected arbitrary color palette;
-this OBS filter instead applies the same distributions/kernels to its
-existing **colors-per-channel** uniform RGB palette. Dither size,
-monochrome, gamma, contrast and color depth remain configurable.
+The new optional **Palette** dropdown also supports Game Boy DMG, CGA
+Palette 1, and PICO-8 in every GPU dithering mode. The original **No Palette**
+setting keeps the existing per-channel RGB quantization exactly as before.
+With a hardware palette, the shader uses a point-sampled, precomputed
+32×32×32 RGB lookup to choose between two actual palette colors at each
+Bayer/blue-noise/quasi-random threshold; **None (Posterize)** selects the
+nearest palette color without dithering. The lookup is rebuilt only when the
+palette changes, not on every frame.
+
+The CPU Floyd–Steinberg, Atkinson, and Sierra Lite modes retain their
+original uniform RGB error-diffusion implementation. Their palette selector
+is hidden because palette-space error propagation is not implemented yet.
+Dither size, monochrome, gamma, contrast and color depth remain configurable.
 **Dither Size** is an integer-only slider from 1–128 px for every mode.
 The default remains 1 px; larger values create chunkier logical pixels.
 Old fractional values are converted to the nearest whole pixel and

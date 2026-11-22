@@ -24,6 +24,7 @@ void dither_destroy(retro_effects_filter_data_t *filter)
 	dither_cpu_destroy(data);
 	if (data->blue_noise_mask)
 		gs_texture_destroy(data->blue_noise_mask);
+	retro_palette_gpu_destroy(&data->palette_gpu);
 
 	obs_leave_graphics();
 
@@ -38,6 +39,7 @@ void dither_unset_settings(retro_effects_filter_data_t *filter)
 	obs_data_unset_user_value(settings, "dither_type");
 	obs_data_unset_user_value(settings, "dither_bayer_size");
 	obs_data_unset_user_value(settings, "dither_color_steps");
+	obs_data_unset_user_value(settings, "dither_palette");
 	obs_data_unset_user_value(settings, "dither_mono");
 	obs_data_unset_user_value(settings, "dither_round");
 	obs_data_unset_user_value(settings, "dither_contrast");
@@ -83,6 +85,9 @@ void dither_filter_update(retro_effects_filter_data_t *data, obs_data_t *setting
 	filter->bayer_size = matrix_size;
 	filter->dither_type = (uint32_t)selected;
 	filter->color_steps = (uint32_t)obs_data_get_int(settings, "dither_color_steps");
+	int palette_id = (int)obs_data_get_int(settings, "dither_palette");
+	filter->palette_id = palette_id >= RETRO_PALETTE_DMG && palette_id <= RETRO_PALETTE_PICO8
+		? palette_id : RETRO_PALETTE_NONE;
 	filter->monochromatic = obs_data_get_bool(settings, "dither_mono");
 	filter->round_to_pixel = obs_data_get_bool(settings, "dither_round");
 	filter->contrast = (float)obs_data_get_double(settings, "dither_contrast") * 255.0f;
@@ -98,6 +103,7 @@ void dither_filter_update(retro_effects_filter_data_t *data, obs_data_t *setting
 void dither_filter_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_int(settings, "dither_color_steps", 1);
+	obs_data_set_default_int(settings, "dither_palette", RETRO_PALETTE_NONE);
 	obs_data_set_default_int(settings, "dither_type", DITHER_TYPE_ORDERED);
 	obs_data_set_default_bool(settings, "dither_mono", false);
 	obs_data_set_default_bool(settings, "dither_round", true);
@@ -142,6 +148,14 @@ void dither_filter_properties(retro_effects_filter_data_t *data, obs_properties_
 
 	obs_properties_add_int_slider(props, "dither_color_steps", obs_module_text("RetroEffects.Dither.ColorSteps"), 1,
 				      32, 1);
+
+	obs_property_t *palette = obs_properties_add_list(props, "dither_palette",
+		obs_module_text("RetroEffects.Palette"), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(palette, obs_module_text("RetroEffects.Palette.None"), RETRO_PALETTE_NONE);
+	obs_property_list_add_int(palette, obs_module_text("RetroEffects.Palette.DMG"), RETRO_PALETTE_DMG);
+	obs_property_list_add_int(palette, obs_module_text("RetroEffects.Palette.CGA"), RETRO_PALETTE_CGA);
+	obs_property_list_add_int(palette, obs_module_text("RetroEffects.Palette.PICO8"), RETRO_PALETTE_PICO8);
+	obs_property_set_modified_callback(palette, dither_type_modified);
 
 	obs_properties_add_bool(props, "dither_mono", obs_module_text("RetroEffects.Dither.Monochromatic"));
 
@@ -233,6 +247,21 @@ void dither_filter_video_render(retro_effects_filter_data_t *data)
 		}
 		gs_effect_set_texture(filter->param_blue_noise_mask, filter->blue_noise_mask);
 	}
+	/* Palette mapping applies to GPU dithering. CPU diffusion retains its original
+	 * quantization; the palette selector is hidden for those modes. */
+	bool gpu_palette = filter->palette_id != RETRO_PALETTE_NONE &&
+		!(filter->dither_type >= DITHER_TYPE_FLOYD && filter->dither_type <= DITHER_TYPE_SIERRA_LITE);
+	if (filter->param_palette_enabled)
+		gs_effect_set_float(filter->param_palette_enabled, gpu_palette ? 1.f : 0.f);
+	if (gpu_palette) {
+		if (!filter->param_palette_primary || !filter->param_palette_second ||
+		    !retro_palette_gpu_ensure(&filter->palette_gpu, filter->palette_id)) {
+			obs_source_skip_video_filter(base->context);
+			return;
+		}
+		gs_effect_set_texture(filter->param_palette_primary, filter->palette_gpu.primary);
+		gs_effect_set_texture(filter->param_palette_second, filter->palette_gpu.alternate);
+	}
 	if (filter->dither_type >= DITHER_TYPE_FLOYD && filter->dither_type <= DITHER_TYPE_SIERRA_LITE) {
 		if (!dither_cpu_render(filter, base, image, effect))
 			obs_source_skip_video_filter(base->context);
@@ -296,6 +325,9 @@ static void dither_load_effect(dither_filter_data_t *filter)
 	filter->param_diffusion_prepass = NULL;
 	filter->param_processed_image = NULL;
 	filter->param_blue_noise_mask = NULL;
+	filter->param_palette_enabled = NULL;
+	filter->param_palette_primary = NULL;
+	filter->param_palette_second = NULL;
 	char *shader_text = NULL;
 	struct dstr filename = {0};
 	dstr_cat(&filename, obs_get_module_data_path(obs_current_module()));
@@ -357,6 +389,12 @@ static void dither_load_effect(dither_filter_data_t *filter)
 				filter->param_processed_image = param;
 			} else if (strcmp(info.name, "real_blue_noise_mask") == 0) {
 				filter->param_blue_noise_mask = param;
+			} else if (strcmp(info.name, "palette_enabled") == 0) {
+				filter->param_palette_enabled = param;
+			} else if (strcmp(info.name, "palette_primary") == 0) {
+				filter->param_palette_primary = param;
+			} else if (strcmp(info.name, "palette_second") == 0) {
+				filter->param_palette_second = param;
 			}
 		}
 	}
@@ -380,6 +418,9 @@ static bool dither_type_modified(obs_properties_t *props, obs_property_t *p, obs
 	int dither_type = (int)obs_data_get_int(settings, "dither_type");
 	bool diffusion = dither_type >= DITHER_TYPE_FLOYD && dither_type <= DITHER_TYPE_SIERRA_LITE;
 	setting_visibility("dither_round", !diffusion, props);
+	setting_visibility("dither_palette", !diffusion, props);
+	setting_visibility("dither_color_steps",
+		diffusion || obs_data_get_int(settings, "dither_palette") == RETRO_PALETTE_NONE, props);
 	obs_property_t *size = obs_properties_get(props, "dither_size");
 	if (size)
 		obs_property_int_set_limits(size, 1, 128, 1);

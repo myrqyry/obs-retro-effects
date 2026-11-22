@@ -2,6 +2,8 @@
 
 #include <obs-module.h>
 #include "../obs-retro-effects.h"
+#include "retro-palette.h"
+#include "retro-palette-gpu.h"
 
 #define DITHER_TYPE_ORDERED 1
 #define DITHER_TYPE_ORDERED_LABEL "RetroEffects.Dither.Ordered"
@@ -47,6 +49,10 @@ struct dither_filter_data {
 	gs_eparam_t *param_diffusion_prepass;
 	gs_eparam_t *param_processed_image;
 	gs_eparam_t *param_blue_noise_mask;
+	gs_eparam_t *param_palette_enabled;
+	gs_eparam_t *param_palette_primary;
+	gs_eparam_t *param_palette_second;
+	struct retro_palette_gpu palette_gpu;
 	gs_texture_t *blue_noise_mask;
 	gs_texrender_t *diffusion_prepass;
 	gs_stagesurf_t *diffusion_stage;
@@ -55,6 +61,7 @@ struct dither_filter_data {
 	int diffusion_width, diffusion_height;
 
 	uint32_t dither_type;
+	int palette_id;
 	uint32_t bayer_size;
 	float dither_size;
 	float contrast;

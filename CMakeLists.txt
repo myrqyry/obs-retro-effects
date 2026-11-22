@@ -73,6 +73,8 @@ if(BUILD_TESTING)
     target_link_libraries(test_dither_rust_parity PRIVATE retro_rust_dither ${CMAKE_DL_LIBS} Threads::Threads m)
     add_test(NAME dither_rust_parity COMMAND test_dither_rust_parity)
   endif()
+  add_executable(test_retro_palette tests/test-retro-palette.c src/filters/retro-palette.c)
+  add_test(NAME retro_palette_lut COMMAND test_retro_palette)
   add_executable(test_blue_noise_mask tests/test-blue-noise-mask.c)
   add_test(NAME blue_noise_mask COMMAND test_blue_noise_mask)
   add_executable(test_vhs_osd tests/test-vhs-osd.c src/filters/vhs-osd.c)
@@ -277,6 +279,10 @@ target_sources(
     src/filters/ntsc.c
     src/filters/ntsc.h
     src/filters/posterize.c
+    src/filters/retro-palette.c
+    src/filters/retro-palette.h
+    src/filters/retro-palette-gpu.c
+    src/filters/retro-palette-gpu.h
     src/filters/posterize.h
     src/filters/vhs.c
     src/filters/vhs.h
