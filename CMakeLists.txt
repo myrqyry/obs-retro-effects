@@ -15,9 +15,15 @@ add_library(${CMAKE_PROJECT_NAME} MODULE)
 
 find_package(libobs REQUIRED)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
-target_sources(${PROJECT_NAME} PRIVATE src/filters/dither-diffusion.h
- src/filters/dither-cpu-render.c src/filters/dither-cpu-render.h
- src/filters/vhs-osd.c src/filters/vhs-osd.h)
+target_sources(
+  ${PROJECT_NAME}
+  PRIVATE
+    src/filters/dither-diffusion.h
+    src/filters/dither-cpu-render.c
+    src/filters/dither-cpu-render.h
+    src/filters/vhs-osd.c
+    src/filters/vhs-osd.h
+)
 
 # Experimental drop-in kernel. Linux-only until target/ABI packaging is qualified.
 # OFF preserves all upstream C behavior and cross-platform build workflows.
@@ -31,12 +37,12 @@ if(ENABLE_RUST_DITHER)
   set(RETRO_RUST_DITHER_LIB "${CMAKE_CURRENT_BINARY_DIR}/libretro_dither_rs.a")
   add_custom_command(
     OUTPUT "${RETRO_RUST_DITHER_LIB}"
-    COMMAND "${RUSTC_EXECUTABLE}" --edition=2021 --crate-type=staticlib
-      -C opt-level=3 -C panic=abort -C relocation-model=pic
-      -o "${RETRO_RUST_DITHER_LIB}"
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/rust/dither_diffusion.rs"
+    COMMAND
+      "${RUSTC_EXECUTABLE}" --edition=2021 --crate-type=staticlib -C opt-level=3 -C panic=abort -C relocation-model=pic
+      -o "${RETRO_RUST_DITHER_LIB}" "${CMAKE_CURRENT_SOURCE_DIR}/src/rust/dither_diffusion.rs"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/rust/dither_diffusion.rs"
-    VERBATIM)
+    VERBATIM
+  )
   add_custom_target(retro_rust_dither_build DEPENDS "${RETRO_RUST_DITHER_LIB}")
   add_library(retro_rust_dither STATIC IMPORTED GLOBAL)
   set_target_properties(retro_rust_dither PROPERTIES IMPORTED_LOCATION "${RETRO_RUST_DITHER_LIB}")
@@ -52,15 +58,25 @@ include(CTest)
 if(BUILD_TESTING)
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
-    add_test(NAME retro_foundation_source_contract
-      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test-retro-foundation-contract.py)
-    add_test(NAME matrix_rain_source_contract
-      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test-matrix-rain-contract.py)
-    execute_process(COMMAND ${Python3_EXECUTABLE} -c "import PIL"
-      RESULT_VARIABLE MATRIX_RAIN_PILLOW_AVAILABLE OUTPUT_QUIET ERROR_QUIET)
+    add_test(
+      NAME retro_foundation_source_contract
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test-retro-foundation-contract.py
+    )
+    add_test(
+      NAME matrix_rain_source_contract
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test-matrix-rain-contract.py
+    )
+    execute_process(
+      COMMAND ${Python3_EXECUTABLE} -c "import PIL"
+      RESULT_VARIABLE MATRIX_RAIN_PILLOW_AVAILABLE
+      OUTPUT_QUIET
+      ERROR_QUIET
+    )
     if(MATRIX_RAIN_PILLOW_AVAILABLE EQUAL 0)
-      add_test(NAME matrix_rain_glyph_atlas
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test-matrix-glyph-atlas.py)
+      add_test(
+        NAME matrix_rain_glyph_atlas
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test-matrix-glyph-atlas.py
+      )
     endif()
   endif()
   add_executable(test_dither_diffusion tests/test-dither-diffusion.c src/filters/dither-diffusion.c)
@@ -80,80 +96,72 @@ if(BUILD_TESTING)
   add_test(NAME blue_noise_mask COMMAND test_blue_noise_mask)
   add_executable(test_vhs_osd tests/test-vhs-osd.c src/filters/vhs-osd.c)
   add_test(NAME vhs_osd_unit COMMAND test_vhs_osd)
-
 endif()
-
 
 if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
   find_program(XVFB_RUN xvfb-run)
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/h263-test-home")
   if(XVFB_RUN)
-        add_executable(test_effect_hotkeys tests/test-effect-hotkeys.cpp)
-        target_link_libraries(test_effect_hotkeys PRIVATE OBS::libobs)
-        add_test(NAME effect_hotkeys_obs
-          COMMAND ${CMAKE_COMMAND} -E env
-            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            ${XVFB_RUN} -a
-            $<TARGET_FILE:test_effect_hotkeys>
-            $<TARGET_FILE:${PROJECT_NAME}>
-            "${CMAKE_CURRENT_SOURCE_DIR}/data" obs_retro_effects_filter)
-        set_tests_properties(effect_hotkeys_obs PROPERTIES TIMEOUT 30)
-        add_executable(test_dither_ui tests/test-dither-ui.cpp)
-        target_link_libraries(test_dither_ui PRIVATE OBS::libobs)
-        add_test(NAME dither_ui
-          COMMAND ${CMAKE_COMMAND} -E env
-            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            ${XVFB_RUN} -a
-            $<TARGET_FILE:test_dither_ui>
-            $<TARGET_FILE:${PROJECT_NAME}>
-            "${CMAKE_CURRENT_SOURCE_DIR}/data")
-        set_tests_properties(dither_ui PROPERTIES TIMEOUT 30)
-        add_executable(test_dither_obs tests/test-dither-obs.cpp)
-        target_link_libraries(test_dither_obs PRIVATE OBS::libobs)
-        add_test(NAME dither_obs_render
-          COMMAND ${CMAKE_COMMAND} -E env
-            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            ${XVFB_RUN} -a
-            $<TARGET_FILE:test_dither_obs>
-            $<TARGET_FILE:${PROJECT_NAME}>
-            "${CMAKE_CURRENT_SOURCE_DIR}/data")
-        set_tests_properties(dither_obs_render PROPERTIES TIMEOUT 45)
-        add_executable(test_matrix_rain_obs tests/test-matrix-rain-obs.cpp)
-        target_link_libraries(test_matrix_rain_obs PRIVATE OBS::libobs)
-        add_test(NAME matrix_rain_obs_render
-          COMMAND ${CMAKE_COMMAND} -E env
-            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            ${XVFB_RUN} -a
-            $<TARGET_FILE:test_matrix_rain_obs>
-            $<TARGET_FILE:${PROJECT_NAME}>
-            "${CMAKE_CURRENT_SOURCE_DIR}/data")
-        set_tests_properties(matrix_rain_obs_render PROPERTIES TIMEOUT 45)
-        add_executable(test_vhs_obs tests/test-vhs-obs.cpp)
-        target_link_libraries(test_vhs_obs PRIVATE OBS::libobs)
-        add_test(NAME vhs_osd_obs_render
-          COMMAND ${CMAKE_COMMAND} -E env
-            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            ${XVFB_RUN} -a
-            $<TARGET_FILE:test_vhs_obs>
-            $<TARGET_FILE:${PROJECT_NAME}>
-            "${CMAKE_CURRENT_SOURCE_DIR}/data")
-        set_tests_properties(vhs_osd_obs_render PROPERTIES TIMEOUT 45)
-        add_executable(test_retro_foundation_obs tests/test-retro-foundation-obs.cpp)
-        target_link_libraries(test_retro_foundation_obs PRIVATE OBS::libobs)
-        add_test(NAME retro_foundation_obs_render
-          COMMAND ${CMAKE_COMMAND} -E env
-            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            ${XVFB_RUN} -a
-            $<TARGET_FILE:test_retro_foundation_obs>
-            $<TARGET_FILE:${PROJECT_NAME}>
-            "${CMAKE_CURRENT_SOURCE_DIR}/data")
-        set_tests_properties(retro_foundation_obs_render PROPERTIES TIMEOUT 45)
+    add_executable(test_effect_hotkeys tests/test-effect-hotkeys.cpp)
+    target_link_libraries(test_effect_hotkeys PRIVATE OBS::libobs)
+    add_test(
+      NAME effect_hotkeys_obs
+      COMMAND
+        ${CMAKE_COMMAND} -E env "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+        "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home" ${XVFB_RUN} -a $<TARGET_FILE:test_effect_hotkeys>
+        $<TARGET_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/data" obs_retro_effects_filter
+    )
+    set_tests_properties(effect_hotkeys_obs PROPERTIES TIMEOUT 30)
+    add_executable(test_dither_ui tests/test-dither-ui.cpp)
+    target_link_libraries(test_dither_ui PRIVATE OBS::libobs)
+    add_test(
+      NAME dither_ui
+      COMMAND
+        ${CMAKE_COMMAND} -E env "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+        "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home" ${XVFB_RUN} -a $<TARGET_FILE:test_dither_ui>
+        $<TARGET_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/data"
+    )
+    set_tests_properties(dither_ui PROPERTIES TIMEOUT 30)
+    add_executable(test_dither_obs tests/test-dither-obs.cpp)
+    target_link_libraries(test_dither_obs PRIVATE OBS::libobs)
+    add_test(
+      NAME dither_obs_render
+      COMMAND
+        ${CMAKE_COMMAND} -E env "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+        "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home" ${XVFB_RUN} -a $<TARGET_FILE:test_dither_obs>
+        $<TARGET_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/data"
+    )
+    set_tests_properties(dither_obs_render PROPERTIES TIMEOUT 45)
+    add_executable(test_matrix_rain_obs tests/test-matrix-rain-obs.cpp)
+    target_link_libraries(test_matrix_rain_obs PRIVATE OBS::libobs)
+    add_test(
+      NAME matrix_rain_obs_render
+      COMMAND
+        ${CMAKE_COMMAND} -E env "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+        "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home" ${XVFB_RUN} -a $<TARGET_FILE:test_matrix_rain_obs>
+        $<TARGET_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/data"
+    )
+    set_tests_properties(matrix_rain_obs_render PROPERTIES TIMEOUT 45)
+    add_executable(test_vhs_obs tests/test-vhs-obs.cpp)
+    target_link_libraries(test_vhs_obs PRIVATE OBS::libobs)
+    add_test(
+      NAME vhs_osd_obs_render
+      COMMAND
+        ${CMAKE_COMMAND} -E env "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+        "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home" ${XVFB_RUN} -a $<TARGET_FILE:test_vhs_obs>
+        $<TARGET_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/data"
+    )
+    set_tests_properties(vhs_osd_obs_render PROPERTIES TIMEOUT 45)
+    add_executable(test_retro_foundation_obs tests/test-retro-foundation-obs.cpp)
+    target_link_libraries(test_retro_foundation_obs PRIVATE OBS::libobs)
+    add_test(
+      NAME retro_foundation_obs_render
+      COMMAND
+        ${CMAKE_COMMAND} -E env "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+        "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home" ${XVFB_RUN} -a $<TARGET_FILE:test_retro_foundation_obs>
+        $<TARGET_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/data"
+    )
+    set_tests_properties(retro_foundation_obs_render PROPERTIES TIMEOUT 45)
   endif()
 endif()
 
@@ -166,10 +174,16 @@ endif()
 if(ENABLE_VIDEO_CODECS)
   include(RetroFFmpeg)
   find_package(Threads REQUIRED)
-  target_sources(${PROJECT_NAME} PRIVATE
-    src/codec/video-roundtrip.c src/codec/video-roundtrip.h
-    src/codec/video-obs.c src/codec/video-obs.h
-    src/codec/codec-worker.cpp src/codec/codec-worker.h)
+  target_sources(
+    ${PROJECT_NAME}
+    PRIVATE
+      src/codec/video-roundtrip.c
+      src/codec/video-roundtrip.h
+      src/codec/video-obs.c
+      src/codec/video-obs.h
+      src/codec/codec-worker.cpp
+      src/codec/codec-worker.h
+  )
   target_link_libraries(${PROJECT_NAME} PRIVATE retro_ffmpeg Threads::Threads)
   target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_VIDEO_CODECS=1)
 
@@ -193,28 +207,33 @@ if(ENABLE_VIDEO_CODECS)
         add_executable(test_h263_obs tests/test-h263-obs.cpp)
         target_link_libraries(test_h263_obs PRIVATE OBS::libobs)
         file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/h263-test-home")
-        foreach(format h263 mpeg4 cinepak svq1 msvideo1 flv1 mpeg1 mjpeg)
+        foreach(
+          format
+          h263
+          mpeg4
+          cinepak
+          svq1
+          msvideo1
+          flv1
+          mpeg1
+          mjpeg
+        )
           add_test(
             NAME ${format}_obs_render
-            COMMAND ${CMAKE_COMMAND} -E env
-              "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-              "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-              ${XVFB_RUN} -a
-              $<TARGET_FILE:test_h263_obs>
-              $<TARGET_FILE:${PROJECT_NAME}>
-              "${CMAKE_CURRENT_SOURCE_DIR}/data"
-              ${format}
+            COMMAND
+              ${CMAKE_COMMAND} -E env "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+              "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home" ${XVFB_RUN} -a $<TARGET_FILE:test_h263_obs>
+              $<TARGET_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/data" ${format}
           )
           set_tests_properties(${format}_obs_render PROPERTIES TIMEOUT 40)
         endforeach()
-        add_test(NAME codec_portrait_render
-          COMMAND ${CMAKE_COMMAND} -E env
-            "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home"
-            ${XVFB_RUN} -a
-            $<TARGET_FILE:test_h263_obs>
-            $<TARGET_FILE:${PROJECT_NAME}>
-            "${CMAKE_CURRENT_SOURCE_DIR}/data" mpeg4 portrait)
+        add_test(
+          NAME codec_portrait_render
+          COMMAND
+            ${CMAKE_COMMAND} -E env "HOME=${CMAKE_BINARY_DIR}/h263-test-home"
+            "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/h263-test-home" ${XVFB_RUN} -a $<TARGET_FILE:test_h263_obs>
+            $<TARGET_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/data" mpeg4 portrait
+        )
         set_tests_properties(codec_portrait_render PROPERTIES TIMEOUT 40)
       endif()
     endif()

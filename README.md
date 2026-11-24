@@ -87,6 +87,22 @@ analog signals, or historical file/container formats.
 
 ## Building and testing
 
+[Build checks](https://github.com/myrqyry/obs-retro-effects/actions) ·
+[README integrity](.github/workflows/readme.yml) ·
+[OBS 33 compatibility](.github/workflows/obs33-compatibility.yml)
+
+The November 21 [fork CI run](https://github.com/myrqyry/obs-retro-effects/actions/runs/44911303319)
+for commit `1497405` passed Linux, Windows and macOS builds and unsigned
+Windows packaging. The only failing job was the CMake formatting check
+(gersemi 0.21.0); the separate
+[OBS 33 build](https://github.com/myrqyry/obs-retro-effects/actions/runs/44911303295)
+passed. The CMake format check is now repaired locally (gersemi 0.21.0);
+the codec-enabled Linux build and all 25 registered regression tests
+passed locally, including the eight native codec rendering cases.
+Hosted verification of the newer commits is pending. These build results
+are not equivalent to running each effect on each platform.
+
+
 Use a **source checkout with this branch's commits**, not an upstream
 release download. The Linux build needs CMake 3.28+, Ninja, C/C++
 compilers, libobs development headers and libraries, and a compatible OBS
