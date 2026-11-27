@@ -8,6 +8,10 @@ option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" OFF)
 option(ENABLE_QT "Use Qt functionality" OFF)
 
 include(compilerconfig)
+option(RETRO_EXTERNAL_SDK "Use an explicitly provisioned OBS SDK" OFF)
+if(RETRO_EXTERNAL_SDK AND NOT EXISTS "${libobs_DIR}/libobsConfig.cmake")
+  message(FATAL_ERROR "External OBS SDK requires libobs_DIR")
+endif()
 include(defaults)
 include(helpers)
 
