@@ -8,5 +8,4 @@ the root manifest, license and native module.
 Local installed OBS32.2.0: 25/25 CTests passed. Staged manifest inventory
 initially failed; corrected to account for the existing root manifest.
 Fresh stage verified all 36 assets and the 38-file archive. Hosted
-OBS33/native SDK qualification pending. Artifact uploads disabled
-during this additive pilot; existing release workflow unchanged.
+OBS33/native SDK qualification pending. Downloadable binary test artifacts enabled; existing release workflow unchanged.
