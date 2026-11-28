@@ -1,13 +1,18 @@
-ci_dependencies(){ :; }
+ci_dependencies(){
+  sudo apt-get install -y --no-install-recommends python3-pil fontconfig fonts-dejavu-core
+  /usr/bin/python3 -c 'import PIL'
+}
 ci_build(){
   cmake -S "$CI_ROOT" -B "$CI_BUILD" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -Dlibobs_DIR="$CI_SDK/lib/cmake/libobs" -DBUILD_TESTING=ON \
+    -DPython3_EXECUTABLE=/usr/bin/python3 \
     -DENABLE_VIDEO_CODECS=ON -DENABLE_RUST_DITHER=OFF \
     -DENABLE_QT=OFF -DENABLE_FRONTEND_API=OFF
   cmake --build "$CI_BUILD" --parallel 4
 }
 ci_test(){
   python3 "$CI_ROOT/tests/test_obs33_compat.py"
+  ctest --test-dir "$CI_BUILD" -N -R "^matrix_rain_glyph_atlas$" | grep -E "Test +#[0-9]+: matrix_rain_glyph_atlas$"
   verify_ctest
 }
 ci_stage(){

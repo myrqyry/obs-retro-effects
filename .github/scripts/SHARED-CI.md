@@ -16,3 +16,14 @@ Windows/macOS use the pinned native SDK with the existing full plugin
 features and actual staged module/data/license verification.
 The six native layout fixtures pass locally; hosted build and actual
 native module load are separate qualifications. Binary uploads enabled.
+
+Shared engine/cache update (73cc0ec): previous hosted full matrix passed
+all six native Windows/macOS jobs, but both Linux jobs registered only
+24 of 25 CTests because the runner's Python lacked Pillow. Install
+python3-pil, fontconfig and DejaVu fonts before the SDK fingerprint;
+select /usr/bin/python3 explicitly for CMake and require the named
+matrix_rain_glyph_atlas test as well as the unchanged 25-test floor.
+Local clean OBS32 build with the pinned shared SDK passed all 25 CTests,
+including codec and actual libobs rendering, verified all 36 installed
+assets and the 38-file archive. New hosted full matrix and SDK cache
+restoration remain to be qualified. Existing release workflows unchanged.

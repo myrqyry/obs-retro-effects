@@ -8,11 +8,22 @@ permissions:
   contents: read
 jobs:
   build:
-    uses: myrqyry/obs-plugin-ci/.github/workflows/build.yml@e9eb704437e606721ee92d7d064c4b8168fd8f53
+    uses: myrqyry/obs-plugin-ci/.github/workflows/build.yml@73cc0ec83c3182cb471fc977d2de676416194852
     with:
       module: obs-retro-effects
       profile: full
       driver: caller
+      engine-revision: 73cc0ec83c3182cb471fc977d2de676416194852
+      linux-sdk-cache: true
+      required-paths: |
+        .github/scripts/ci-project.sh
+        .github/scripts/ci-native.py
+        .github/scripts/test-native-caller.py
+        tests/test-matrix-glyph-atlas.py
+        scripts/make-matrix-atlas.py
+        tests/test_obs33_compat.py
+        manifest.json
+        LICENSE
       minimum-tests: 25
       source-package: false
       upload-artifacts: true
